@@ -117,21 +117,21 @@ class ModelEvaluation:
             test_data[self.config.target_column].values,
             predicted_qualities,
         )
+
         if per_class_metrics:
             scores["per_class"] = per_class_metrics
             # Per-class quality gate
-            threshold = self.config.per_class_r2_threshold
+            threshold = self.config.per_class_max_rmse
             for quality, m in per_class_metrics.items():
-                if m.get("r2", 0) < threshold:
+                if m.get("rmse", 0) > threshold:
                     logger.error(
-                        f"Model rejected: quality={quality} R²={m['r2']:.4f} "
-                        f"below threshold {threshold}"
+                        f"Model rejected: quality={quality} RMSE={m['rmse']:.4f} "
+                        f"above threshold {threshold}"
                     )
                     raise ValueError(
                         f"Model failed per-class quality gate: quality={quality} "
-                        f"R²={m['r2']:.4f} < {threshold}"
+                        f"RMSE={m['rmse']:.4f} > {threshold}"
                     )
-
         save_json(path=Path(self.config.metric_file_name), data=scores)
 
         logger.info(f"Evaluation metrics saved: RMSE={rmse:.4f}, MAE={mae:.4f}, R2={r2:.4f}, Baseline R2={baseline_r2:.4f}")
@@ -230,7 +230,12 @@ class ModelEvaluation:
         return comparison
 
     def _compute_per_class_metrics(self, y_true, y_pred, min_samples=3):
-        """Compute per-class RMSE, MAE, R² for each quality level."""
+        """Compute per-class RMSE and MAE for each quality level.
+
+        R² is intentionally excluded: for a single-class subset the true
+        labels are constant (zero variance), making R² mathematically
+        undefined (NaN or arbitrarily negative).
+        """
         y_true = np.asarray(y_true).flatten()
         y_pred = np.asarray(y_pred).flatten()
         per_class = {}
@@ -240,11 +245,9 @@ class ModelEvaluation:
             if count >= min_samples:
                 rmse = np.sqrt(mean_squared_error(y_true[mask], y_pred[mask]))
                 mae = mean_absolute_error(y_true[mask], y_pred[mask])
-                r2 = r2_score(y_true[mask], y_pred[mask])
                 per_class[int(quality)] = {
                     "rmse": round(float(rmse), 4),
                     "mae": round(float(mae), 4),
-                    "r2": round(float(r2), 4),
                     "count": count,
                 }
         return per_class
