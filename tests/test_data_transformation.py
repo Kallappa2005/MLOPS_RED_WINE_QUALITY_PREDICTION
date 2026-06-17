@@ -51,6 +51,13 @@ class DataTransformationSplitTest(unittest.TestCase):
 
 
 class TestPreprocessing(unittest.TestCase):
+    def setUp(self):
+        self._tmp_dir_ctx = tempfile.TemporaryDirectory()
+        self.root_dir = Path(self._tmp_dir_ctx.name)
+
+    def tearDown(self):
+        self._tmp_dir_ctx.cleanup()
+
     def test_feature_engineer_adds_derived_features(self):
         data = np.array([
             [7.4, 0.7, 0.0, 1.9, 0.076, 11.0, 34.0, 0.9978, 3.51, 0.56, 9.4],
@@ -132,8 +139,8 @@ class TestPreprocessing(unittest.TestCase):
 
     def test_build_preprocessing_pipeline_honors_feature_engineering_flags(self):
         config = DataTransformationConfig(
-            root_dir=Path("/tmp"),
-            data_path=Path("/tmp/wine.csv"),
+            root_dir=self.root_dir,
+            data_path=self.root_dir / "wine.csv",
             test_size=0.25,
             random_state=42,
             stratify_column="quality",
@@ -156,8 +163,8 @@ class TestPreprocessing(unittest.TestCase):
 
     def test_build_preprocessing_pipeline_skips_outlier_capper_when_disabled(self):
         config = DataTransformationConfig(
-            root_dir=Path("/tmp"),
-            data_path=Path("/tmp/wine.csv"),
+            root_dir=self.root_dir,
+            data_path=self.root_dir / "wine.csv",
             test_size=0.25,
             random_state=42,
             stratify_column="quality",
@@ -174,8 +181,8 @@ class TestPreprocessing(unittest.TestCase):
 
     def test_build_preprocessing_pipeline_skips_imputer_when_disabled(self):
         config = DataTransformationConfig(
-            root_dir=Path("/tmp"),
-            data_path=Path("/tmp/wine.csv"),
+            root_dir=self.root_dir,
+            data_path=self.root_dir / "wine.csv",
             test_size=0.25,
             random_state=42,
             stratify_column="quality",
@@ -192,8 +199,8 @@ class TestPreprocessing(unittest.TestCase):
 
     def test_build_preprocessing_pipeline_uses_outlier_iqr_multiplier_from_config(self):
         config = DataTransformationConfig(
-            root_dir=Path("/tmp"),
-            data_path=Path("/tmp/wine.csv"),
+            root_dir=self.root_dir,
+            data_path=self.root_dir / "wine.csv",
             test_size=0.25,
             random_state=42,
             stratify_column="quality",
