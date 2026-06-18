@@ -8,6 +8,26 @@ A complete **MLOps pipeline** for predicting red wine quality using machine lear
 
 This repository now also includes **DVC (Data Version Control)** setup so the data pipeline, model artifacts, and metrics can be versioned and reproduced consistently.
 
+## 📚 Table of Contents
+
+- [🎯 Live Demo](#-live-demo)
+- [✨ Features](#-features)
+- [🏗️ Project Architecture](#️-project-architecture)
+- [🛠️ Tech Stack](#️-tech-stack)
+- [🚀 Quick Start](#-quick-start)
+- [🐳 Docker Usage](#-docker-usage)
+- [📊 Model Details](#-model-details)
+- [🔄 MLOps Pipeline](#-mlops-pipeline)
+- [🚀 Deployment & CI/CD](#-deployment--cicd)
+- [📁 Project Structure](#-project-structure)
+- [🎮 Usage Examples](#-usage-examples)
+- [🔧 Development](#-development)
+- [📈 Performance Metrics](#-performance-metrics)
+- [🤝 Contributing](#-contributing)
+- [Contributors](#contributors)
+- [📜 License](#-license)
+- [🙏 Acknowledgments](#-acknowledgments)
+
 ## 🎯 Live Demo
 **Try the app:** [https://wine-quality-predictor-01.onrender.com/](https://wine-quality-predictor-01.onrender.com/)
 
