@@ -68,6 +68,31 @@ limiter = Limiter(
     storage_uri="memory://",    # Fine for single-worker Render free tier
 )
 
+
+# ---------------------------------------------------------------------------
+# Rate limit error handler
+# ---------------------------------------------------------------------------
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    """Handle rate limit exceeded errors with a user-friendly response."""
+    return jsonify({
+        "error": "Rate limit exceeded",
+        "message": "Too many requests. Please try again later.",
+        "retry_after": e.description,
+    }), 429
+
+
+@app.after_request
+def add_rate_limit_headers(response):
+    """Add rate limit headers to all responses for transparency."""
+    # Only add headers if rate limiting is active for this endpoint
+    if hasattr(request, '_limiter_limit'):
+        response.headers['X-RateLimit-Limit'] = request._limiter_limit
+        response.headers['X-RateLimit-Remaining'] = request._limiter_remaining
+        response.headers['X-RateLimit-Reset'] = request._limiter_reset
+    return response
+
+
 # ---------------------------------------------------------------------------
 # Training state
 # _training_lock is held for the entire duration of a training run.
@@ -410,6 +435,7 @@ def training_status():
 
 
 @app.route("/predict", methods=["POST", "GET"])
+@limiter.limit("60 per minute")  # Rate limit: 60 requests per minute per IP
 def index():
     if request.method == "POST":
         try:
