@@ -29,9 +29,13 @@ jobs:
       run: |
         dvc diff --md || echo "No DVC data drift detected"
 
-    - name: Run tests
+    - name: Run unit tests
       run: |
-        python -m pytest tests/ -v
+        python -m pytest tests/ -v -m "not integration"
+
+    - name: Run integration tests
+      run: |
+        python -m pytest tests/ -v -m "integration" --timeout=300
         
   deploy:
     needs: test
