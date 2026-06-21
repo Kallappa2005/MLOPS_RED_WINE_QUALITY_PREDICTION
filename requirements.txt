@@ -20,4 +20,5 @@ mlflow==2.12.2
 shap==0.44.1
 xgboost==2.0.3
 reportlab==4.1.0
-scipy==1.10.1
+scipy==1.10.1
+PyJWT==2.10.1
