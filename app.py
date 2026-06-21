@@ -21,30 +21,35 @@ import functools
 import json
 import logging
 import os
+import secrets
+import signal
 import subprocess
+import sys
 import threading
 import time
 import uuid
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from queue import Queue
+from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
-from flask import Flask, abort, jsonify, render_template, request, session
+import portalocker
+from flask import Flask, abort, g, jsonify, render_template, request, session
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-logger = logging.getLogger(__name__)
-from pathlib import Path
 from mlProject.config.configuration import ConfigurationManager
 from mlProject.constants import ENV_FLASK_PORT, ENV_FLASK_DEBUG, ENV_TAG
 from mlProject.pipeline.prediction import PredictionPipeline
 from mlProject import logger
 from mlProject.utils.common import load_env_file, get_env_or_config
-from mlProject.utils.model_registry import load_registry, rollback_to_version
+from mlProject.utils.model_registry import load_registry, rollback_to_version, update_registration
 from mlProject.components.data_transformation import NUMERIC_FEATURES
 from mlProject.components.xai_explainer import XAIExplainer
 import joblib
