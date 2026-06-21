@@ -56,8 +56,25 @@ def load_registry(registry_path: Path) -> dict:
     return {"production": None, "staging": None, "versions": []}
 
 
-def save_registry(registry_path: Path, registry: dict):
-    """Atomically save model registry to JSON file under a file lock."""
+def save_registry(registry_path: Path, registry: dict, expected_stamp: Optional[str] = None):
+    """Atomically save model registry to JSON file under a file lock.
+
+    If expected_stamp is provided, validates that the current on-disk stamp
+    matches before writing to detect concurrent modifications.
+    """
+    if expected_stamp is not None:
+        try:
+            if registry_path.exists():
+                with open(registry_path, "r") as f:
+                    current = json.load(f)
+                if current.get(_REGISTRY_VERSION_KEY) != expected_stamp:
+                    raise ValueError(
+                        f"Registry version stamp mismatch: expected "
+                        f"{expected_stamp}, got {current.get(_REGISTRY_VERSION_KEY)}. "
+                        "Concurrent modification detected — aborting update."
+                    )
+        except json.JSONDecodeError:
+            logger.warning("Could not decode existing registry to validate stamp; proceeding anyway.")
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     # Stamp with a version for optimistic concurrency detection
     registry[_REGISTRY_VERSION_KEY] = _next_version_stamp()
@@ -100,7 +117,7 @@ def register_model(
     lock = _lock_registry(registry_path)
     try:
         registry = load_registry(registry_path)
-
+        loaded_stamp = registry.get(_REGISTRY_VERSION_KEY)
         for v in registry.get("versions", []):
             if v.get("id") == version_id:
                 raise ValueError(f"Version ID {version_id} already exists in registry")
@@ -132,7 +149,7 @@ def register_model(
                     if sha_path.exists():
                         sha_path.unlink()
                         logger.info(f"Deleted archived checksum: {sha_path}")
-            save_registry(registry_path, registry)
+            save_registry(registry_path, registry, expected_stamp=loaded_stamp)
             return entry
 
         if "rmse" not in metrics:
@@ -229,7 +246,7 @@ def register_model(
                     sha_path.unlink()
                     logger.info(f"Deleted archived checksum: {sha_path}")
 
-        save_registry(registry_path, registry)
+        save_registry(registry_path, registry, expected_stamp=loaded_stamp)
         return entry
     finally:
         _unlock_registry(lock)
@@ -310,7 +327,7 @@ def update_registration(
                             f"version {version_id} — stable copy skipped"
                         )
 
-                save_registry(registry_path, registry)
+                save_registry(registry_path, registry, expected_stamp=loaded_stamp)
                 logger.info(
                     f"Updated registration for version {version_id}: "
                     f"metrics={metrics is not None}, status={status}"
