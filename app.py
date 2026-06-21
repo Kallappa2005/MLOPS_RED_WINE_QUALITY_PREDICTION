@@ -154,8 +154,8 @@ def _release_training_file_lock():
             try:
                 portalocker.unlock(_training_file_lock_fd)
                 _training_file_lock_fd.close()
-    except Exception as e:
-        logger.warning("Health endpoint encountered an error: %s", e)
+            except Exception as e:
+                logger.warning("Health endpoint encountered an error: %s", e)
             _training_file_lock_fd = None
 
 
