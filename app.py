@@ -19,22 +19,25 @@ Additional improvements:
 
 import functools
 import json
+import logging
 import os
-import secrets
-import signal
 import subprocess
-import sys
 import threading
 import time
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse
+import uuid
+from datetime import datetime
+from functools import wraps
+from pathlib import Path
+from queue import Queue
+
 import numpy as np
 import pandas as pd
-import portalocker
-from flask import Flask, abort, jsonify, render_template, request, g
+from flask import Flask, abort, jsonify, render_template, request, session
+from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 from mlProject.config.configuration import ConfigurationManager
 from mlProject.constants import ENV_FLASK_PORT, ENV_FLASK_DEBUG, ENV_TAG
@@ -151,8 +154,8 @@ def _release_training_file_lock():
             try:
                 portalocker.unlock(_training_file_lock_fd)
                 _training_file_lock_fd.close()
-            except Exception:
-                pass
+    except Exception as e:
+        logger.warning("Health endpoint encountered an error: %s", e)
             _training_file_lock_fd = None
 
 
