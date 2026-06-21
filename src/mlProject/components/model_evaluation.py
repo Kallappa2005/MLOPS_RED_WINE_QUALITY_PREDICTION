@@ -262,10 +262,12 @@ class ModelEvaluation:
         """Compare current metrics against previous (skips nested dicts like per_class)."""
         comparison = {"current": current, "previous": previous, "changes": {}}
         for key in current:
-            if isinstance(current[key], dict):
+            cur_val = current[key]
+            prev_val = previous.get(key)
+            if isinstance(cur_val, dict) or isinstance(prev_val, dict):
                 continue
-            if key in previous and isinstance(previous[key], (int, float)) and previous[key] != 0:
-                pct_change = ((current[key] - previous[key]) / abs(previous[key])) * 100
+            if isinstance(cur_val, (int, float)) and isinstance(prev_val, (int, float)) and prev_val != 0:
+                pct_change = ((cur_val - prev_val) / abs(prev_val)) * 100
                 comparison["changes"][key] = round(pct_change, 2)
         return comparison
 
