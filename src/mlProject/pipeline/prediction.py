@@ -63,7 +63,12 @@ class PredictionPipeline:
             logger.info(f"Loaded unified pipeline from {model_path}")
 
         if isinstance(data, np.ndarray):
-            input_data = data
+            if data.shape[1] != len(NUMERIC_FEATURES):
+                raise ValueError(
+                    f"Expected {len(NUMERIC_FEATURES)} features, got {data.shape[1]}. "
+                    f"Required columns in order: {NUMERIC_FEATURES}"
+                )
+            input_data = pd.DataFrame(data, columns=NUMERIC_FEATURES)
         elif isinstance(data, pd.DataFrame):
             missing = [col for col in NUMERIC_FEATURES if col not in data.columns]
             if missing:

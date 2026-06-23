@@ -25,7 +25,13 @@ class SchemaValidator:
                 continue
             expected_dtype = schema_cols[col]
             actual_dtype = str(data[col].dtype)
-            if actual_dtype != expected_dtype:
+            # Use type-family checks to handle NaN-induced upcasting (e.g. int64 -> float64)
+            dtype_ok = (actual_dtype == expected_dtype) or (
+                "int" in expected_dtype and pd.api.types.is_numeric_dtype(data[col])
+            ) or (
+                "float" in expected_dtype and pd.api.types.is_float_dtype(data[col])
+            )
+            if not dtype_ok:
                 errors.append(
                     f"Column '{col}' type mismatch: expected {expected_dtype}, got {actual_dtype}"
                 )
@@ -89,9 +95,12 @@ class DataValidator:
                 logger.warning(f"Failed to load reference data: {e}")
                 reference_data = None
         else:
-            logger.info(f"Reference data not found at {reference_data_path}. Saving current data as reference for future runs.")
-            data.to_csv(reference_data_path, index=False)
-            logger.info(f"Created reference data snapshot at {reference_data_path}")
+            if schema_valid:
+                logger.info(f"Reference data not found at {reference_data_path}. Saving current data as reference for future runs.")
+                data.to_csv(reference_data_path, index=False)
+                logger.info(f"Created reference data snapshot at {reference_data_path}")
+            else:
+                logger.warning(f"Skipping reference data save — schema validation failed. Errors: {schema_errors}")
             reference_data = None
 
         if reference_data is not None:

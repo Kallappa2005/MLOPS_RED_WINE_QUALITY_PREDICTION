@@ -8,6 +8,25 @@ A complete **MLOps pipeline** for predicting red wine quality using machine lear
 
 This repository now also includes **DVC (Data Version Control)** setup so the data pipeline, model artifacts, and metrics can be versioned and reproduced consistently.
 
+---
+
+## Table of Contents
+
+- [🎯 Live Demo](#-live-demo)
+- [✨ Features](#-features)
+- [🏗️ Project Architecture](#%EF%B8%8F-project-architecture)
+- [🛠️ Tech Stack](#%EF%B8%8F-tech-stack)
+- [🚀 Quick Start](#-quick-start)
+- [📁 Project Structure](#-project-structure)
+- [🎮 Usage Examples](#-usage-examples)
+- [#-usage-examples](#-development)
+- [📈 Performance Metrics](#-performance-metrics)
+- [🤝 Contributing](#-contributing)
+- [📜 License](#-license)
+- [🙏 Acknowledgments](#-acknowledgments)
+
+---
+
 ## 🎯 Live Demo
 **Try the app:** [https://wine-quality-predictor-01.onrender.com/](https://wine-quality-predictor-01.onrender.com/)
 
@@ -250,7 +269,7 @@ Metrics are automatically saved in `artifacts/model_evaluation/metrics.json`
 ## Contributors
 
 <!-- CONTRIBUTORS_START -->
-<a href="https://github.com/AMAN194701"><img src="https://github.com/AMAN194701.png" width="50px" loading="lazy" title="AMAN194701" style="border-radius:50%;margin:5px;" alt="AMAN194701" /></a><a href="https://github.com/Juhi4433"><img src="https://github.com/Juhi4433.png" width="50px" loading="lazy" title="Juhi4433" style="border-radius:50%;margin:5px;" alt="Juhi4433" /></a><a href="https://github.com/LaskaaaD"><img src="https://github.com/LaskaaaD.png" width="50px" loading="lazy" title="LaskaaaD" style="border-radius:50%;margin:5px;" alt="LaskaaaD" /></a><a href="https://github.com/Prakhar54-byte"><img src="https://github.com/Prakhar54-byte.png" width="50px" loading="lazy" title="Prakhar54-byte" style="border-radius:50%;margin:5px;" alt="Prakhar54-byte" /></a><a href="https://github.com/Prateek2007-cmd"><img src="https://github.com/Prateek2007-cmd.png" width="50px" loading="lazy" title="Prateek2007-cmd" style="border-radius:50%;margin:5px;" alt="Prateek2007-cmd" /></a><a href="https://github.com/ScarsAndSource"><img src="https://github.com/ScarsAndSource.png" width="50px" loading="lazy" title="ScarsAndSource" style="border-radius:50%;margin:5px;" alt="ScarsAndSource" /></a><a href="https://github.com/Siddh2024"><img src="https://github.com/Siddh2024.png" width="50px" loading="lazy" title="Siddh2024" style="border-radius:50%;margin:5px;" alt="Siddh2024" /></a><a href="https://github.com/anshika1179"><img src="https://github.com/anshika1179.png" width="50px" loading="lazy" title="anshika1179" style="border-radius:50%;margin:5px;" alt="anshika1179" /></a><a href="https://github.com/ionfwsrijan"><img src="https://github.com/ionfwsrijan.png" width="50px" loading="lazy" title="ionfwsrijan" style="border-radius:50%;margin:5px;" alt="ionfwsrijan" /></a><a href="https://github.com/itsdakshjain"><img src="https://github.com/itsdakshjain.png" width="50px" loading="lazy" title="itsdakshjain" style="border-radius:50%;margin:5px;" alt="itsdakshjain" /></a><a href="https://github.com/rahul616sama"><img src="https://github.com/rahul616sama.png" width="50px" loading="lazy" title="rahul616sama" style="border-radius:50%;margin:5px;" alt="rahul616sama" /></a><a href="https://github.com/saurabhhhcodes"><img src="https://github.com/saurabhhhcodes.png" width="50px" loading="lazy" title="saurabhhhcodes" style="border-radius:50%;margin:5px;" alt="saurabhhhcodes" /></a>
+<a href="https://github.com/AMAN194701"><img src="https://github.com/AMAN194701.png" width="50px" loading="lazy" title="AMAN194701" style="border-radius:50%;margin:5px;" alt="AMAN194701" /></a><a href="https://github.com/Juhi4433"><img src="https://github.com/Juhi4433.png" width="50px" loading="lazy" title="Juhi4433" style="border-radius:50%;margin:5px;" alt="Juhi4433" /></a><a href="https://github.com/LaskaaaD"><img src="https://github.com/LaskaaaD.png" width="50px" loading="lazy" title="LaskaaaD" style="border-radius:50%;margin:5px;" alt="LaskaaaD" /></a><a href="https://github.com/Prakhar54-byte"><img src="https://github.com/Prakhar54-byte.png" width="50px" loading="lazy" title="Prakhar54-byte" style="border-radius:50%;margin:5px;" alt="Prakhar54-byte" /></a><a href="https://github.com/Prateek2007-cmd"><img src="https://github.com/Prateek2007-cmd.png" width="50px" loading="lazy" title="Prateek2007-cmd" style="border-radius:50%;margin:5px;" alt="Prateek2007-cmd" /></a><a href="https://github.com/ScarsAndSource"><img src="https://github.com/ScarsAndSource.png" width="50px" loading="lazy" title="ScarsAndSource" style="border-radius:50%;margin:5px;" alt="ScarsAndSource" /></a><a href="https://github.com/Siddh2024"><img src="https://github.com/Siddh2024.png" width="50px" loading="lazy" title="Siddh2024" style="border-radius:50%;margin:5px;" alt="Siddh2024" /></a><a href="https://github.com/Yogender-verma"><img src="https://github.com/Yogender-verma.png" width="50px" loading="lazy" title="Yogender-verma" style="border-radius:50%;margin:5px;" alt="Yogender-verma" /></a><a href="https://github.com/aaniya22"><img src="https://github.com/aaniya22.png" width="50px" loading="lazy" title="aaniya22" style="border-radius:50%;margin:5px;" alt="aaniya22" /></a><a href="https://github.com/anshika1179"><img src="https://github.com/anshika1179.png" width="50px" loading="lazy" title="anshika1179" style="border-radius:50%;margin:5px;" alt="anshika1179" /></a><a href="https://github.com/ionfwsrijan"><img src="https://github.com/ionfwsrijan.png" width="50px" loading="lazy" title="ionfwsrijan" style="border-radius:50%;margin:5px;" alt="ionfwsrijan" /></a><a href="https://github.com/itsdakshjain"><img src="https://github.com/itsdakshjain.png" width="50px" loading="lazy" title="itsdakshjain" style="border-radius:50%;margin:5px;" alt="itsdakshjain" /></a><a href="https://github.com/nyxsky404"><img src="https://github.com/nyxsky404.png" width="50px" loading="lazy" title="nyxsky404" style="border-radius:50%;margin:5px;" alt="nyxsky404" /></a><a href="https://github.com/rahul616sama"><img src="https://github.com/rahul616sama.png" width="50px" loading="lazy" title="rahul616sama" style="border-radius:50%;margin:5px;" alt="rahul616sama" /></a><a href="https://github.com/saidai-bhuvanesh"><img src="https://github.com/saidai-bhuvanesh.png" width="50px" loading="lazy" title="saidai-bhuvanesh" style="border-radius:50%;margin:5px;" alt="saidai-bhuvanesh" /></a><a href="https://github.com/saurabhhhcodes"><img src="https://github.com/saurabhhhcodes.png" width="50px" loading="lazy" title="saurabhhhcodes" style="border-radius:50%;margin:5px;" alt="saurabhhhcodes" /></a>
 <!-- CONTRIBUTORS_END -->
 
 

@@ -215,7 +215,11 @@ def register_model(
         if len(registry["versions"]) > max_versions_to_keep:
             archived = registry["versions"][max_versions_to_keep:]
             registry["versions"] = registry["versions"][:max_versions_to_keep]
+            protected = {registry.get("production"), registry.get("staging")} - {None}
             for v in archived:
+                if v.get("id") in protected:
+                    logger.info(f"Skipping deletion of protected model {v.get('id')} (active production/staging alias)")
+                    continue
                 archived_path = Path(v["path"])
                 if archived_path.exists():
                     archived_path.unlink()
@@ -253,6 +257,21 @@ def update_registration(
                     v["metrics"] = metrics
                 if status is not None:
                     v["status"] = status
+                    if status == "production":
+                        registry["production"] = version_id
+                        # demote previous production if any
+                        for other_v in registry.get("versions", []):
+                            if other_v.get("id") != version_id and other_v.get("status") == "production":
+                                other_v["status"] = "staging"
+                    elif status == "staging":
+                        if registry.get("production") == version_id:
+                            registry["production"] = None
+                        registry["staging"] = version_id
+                    elif status == "archived" or status == "rejected":
+                        if registry.get("production") == version_id:
+                            registry["production"] = None
+                        if registry.get("staging") == version_id:
+                            registry["staging"] = None
                 if model_path is not None:
                     v["path"] = str(model_path)
                 if params is not None:

@@ -8,6 +8,7 @@ tqdm==4.65.0
 ensure==1.0.2
 joblib==1.2.0
 Flask==2.3.2
+werkzeug==2.3.8
 Flask-Cors==3.0.10
 Flask-Limiter==3.5.0
 gunicorn==20.1.0
@@ -16,4 +17,7 @@ python-dotenv==1.0.0
 pydantic-settings==2.1.0
 portalocker==2.10.1
 mlflow==2.12.2
- 
+shap==0.44.1
+xgboost==2.0.3
+reportlab==4.1.0
+scipy==1.10.1

@@ -17,7 +17,7 @@ def load_env_file(env_path: Path = None):
     """Load .env file from the given path or default .env in project root."""
     dotenv_path = env_path or Path(".env")
     if dotenv_path.exists():
-        load_dotenv(dotenv_path=dotenv_path, override=True)
+        load_dotenv(dotenv_path=dotenv_path)
         logger.info(f"Loaded environment from {dotenv_path}")
     else:
         logger.info("No .env file found, using system environment variables")
