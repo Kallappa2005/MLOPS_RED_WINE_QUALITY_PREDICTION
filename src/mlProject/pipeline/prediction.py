@@ -18,13 +18,17 @@ class PredictionPipeline:
             load_env_file()
             try:
                 config_manager = ConfigurationManager()
-                registry_config = config_manager.get_model_registry_config()
-                prod_path = get_production_model_path(registry_config.registry_path)
-                if prod_path is not None and prod_path.exists():
-                    self._model_path = prod_path
+                # Prefer the stable model.joblib: it is rewritten on both
+                # promotion and rollback, so its mtime change drives the
+                # hot-reload in predict() and live traffic follows rollbacks.
+                model_eval_config = config_manager.get_model_evaluation_config()
+                stable_path = model_eval_config.model_path
+                if stable_path is not None and stable_path.exists():
+                    self._model_path = stable_path
                 else:
-                    model_eval_config = config_manager.get_model_evaluation_config()
-                    self._model_path = model_eval_config.model_path
+                    registry_config = config_manager.get_model_registry_config()
+                    prod_path = get_production_model_path(registry_config.registry_path)
+                    self._model_path = prod_path if prod_path is not None else stable_path
             except Exception:
                 self._model_path = Path('artifacts/model_trainer/model.joblib')
 

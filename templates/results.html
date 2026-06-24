@@ -17,7 +17,7 @@
 
     <header class="topbar">
         <a href="/" class="brand">Red Wine IQ</a>
-        <nav class="menu">
+        <nav class="menu" aria-label="Primary">
             <a href="/">Home</a>
             <a href="/#demo">Take Demo</a>
         </nav>
@@ -27,8 +27,8 @@
         {% if error_msg %}
             <p class="badge" style="background: #dc3545;">System Alert</p>
             <h1>Prediction Failed</h1>
-            <div class="result-card" style="border-left: 4px solid #dc3545;">
-                <p class="result-copy" style="font-size: 1.25rem; color: #333;">{{ error_msg }}</p>
+            <div class="result-card" style="border-left: 4px solid #dc3545;" role="alert">
+                <p class="result-copy" style="font-size: 1.25rem; color: #333;"><strong>Error:</strong> {{ error_msg }}</p>
             </div>
         {% else %}
             <p class="badge">Prediction Ready</p>

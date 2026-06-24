@@ -28,11 +28,10 @@ import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse
+import io
 import numpy as np
 import pandas as pd
-import portalocker
-from flask import Flask, abort, jsonify, render_template, request, g
+from flask import Flask, abort, jsonify, render_template, request, Response, g
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from pathlib import Path
@@ -52,8 +51,13 @@ from mlProject.components.retraining import RetrainingEngine
 from mlProject.components.observability import APILogger, ObservabilityCollector
 
 
+@functools.lru_cache(maxsize=1)
 def _get_registry_path() -> Path:
-    """Get the configured model registry path."""
+    """Get the configured model registry path.
+
+    Cached for the process lifetime — the path is derived from immutable
+    config and is resolved on every /health request.
+    """
     try:
         return ConfigurationManager().get_model_registry_config().registry_path
     except Exception:
@@ -273,12 +277,6 @@ def require_admin_token(f):
 # ---------------------------------------------------------------------------
 # Log helper
 # ---------------------------------------------------------------------------
-def _safe_log(msg: str) -> None:
-    """Append a message to training_log, capped at MAX_LOG_LINES."""
-    if len(training_log) < MAX_LOG_LINES:
-        training_log.append(msg)
-
-
 # ---------------------------------------------------------------------------
 # Startup helper
 # ---------------------------------------------------------------------------
@@ -305,14 +303,15 @@ def validate_config_at_startup() -> None:
 def _run_training_in_background() -> None:
     """Subprocess-based training; releases _training_lock when done."""
     global is_training, _training_process
-    if not _acquire_training_file_lock():
-        with _log_lock:
-            training_log.append("Training rejected: another process is already training")
-        try:
-            _training_lock.release()
-        except RuntimeError:
-            pass
-        return
+        if not _acquire_training_file_lock():
+            is_training = False
+            with _log_lock:
+                training_log.append("Training rejected: another process is already training")
+            try:
+                _training_lock.release()
+            except RuntimeError:
+                pass
+            return
     start_time = time.time()
     _write_training_state(True, ["Training started..."], started_at=start_time)
     try:
@@ -376,11 +375,12 @@ def ensure_model_trained() -> None:
             return
         print("Model not found - starting automatic training...")
         try:
+            train_timeout = int(os.environ.get("TRAIN_TIMEOUT", "1800"))
             result = subprocess.run(
                 [sys.executable, "main.py"],
                 capture_output=True,
                 text=True,
-                timeout=300,
+                timeout=train_timeout,
             )
             if result.returncode == 0:
                 print("Auto-training completed!")
@@ -658,6 +658,8 @@ def analytics_export_pdf():
 @limiter.limit("30 per minute")
 def index():
     if request.method == "POST":
+        if request.content_type and "form" not in request.content_type and "urlencoded" not in request.content_type:
+            return render_template("results.html", error_msg="Only form-encoded data is supported. Use Content-Type: application/x-www-form-urlencoded."), 400
         try:
             fixed_acidity        = float(request.form["fixed_acidity"])
             volatile_acidity     = float(request.form["volatile_acidity"])
@@ -751,37 +753,51 @@ def index():
         return render_template("index.html")
 
 
-_PREDICT_FIELDS = [
-    "fixed_acidity", "volatile_acidity", "citric_acid", "residual_sugar",
-    "chlorides", "free_sulfur_dioxide", "total_sulfur_dioxide",
-    "density", "pH", "sulphates", "alcohol",
-]
-
-
-@app.route("/api/predict", methods=["POST"])
-@limiter.limit("30 per minute")
-def api_predict():
-    body = request.get_json(silent=True)
-    if not body:
-        return jsonify({"error": "Request body must be JSON"}), 400
-
-    missing = [f for f in _PREDICT_FIELDS if f not in body]
-    if missing:
-        return jsonify({"error": "Missing fields", "fields": missing}), 422
-
+@app.route("/predict/batch", methods=["POST"])
+@limiter.limit("10 per minute")
+def predict_batch():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+        
     try:
-        values = [float(body[f]) for f in _PREDICT_FIELDS]
-    except (TypeError, ValueError) as exc:
-        logger.error(f"Validation error in /api/predict: {exc}")
-        return jsonify({"error": "All fields must be numeric"}), 422
-
-    try:
-        data = np.array(values).reshape(1, 11)
-        prediction = round(float(pipeline.predict(data)[0]), 2)
-        return jsonify({"prediction": prediction})
-    except Exception as exc:
-        logger.error(f"Unexpected error in /api/predict: {exc}")
-        return jsonify({"error": "Prediction failed"}), 500
+        # Read the uploaded CSV file
+        df = pd.read_csv(file)
+        
+        # Keep only the required features, ignoring any target columns if present
+        from mlProject.components.data_transformation import NUMERIC_FEATURES
+        
+        missing_cols = [col for col in NUMERIC_FEATURES if col not in df.columns]
+        if missing_cols:
+            return jsonify({"error": f"Missing required columns: {', '.join(missing_cols)}"}), 400
+            
+        test_x = df[NUMERIC_FEATURES]
+        
+        # Predict
+        predictions = pipeline.predict(test_x)
+        
+        # Append predictions
+        df['predicted_quality'] = np.round(predictions, 2)
+        
+        # Convert back to CSV
+        output = io.StringIO()
+        df.to_csv(output, index=False)
+        csv_data = output.getvalue()
+        
+        return Response(
+            csv_data,
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment;filename=predictions.csv"}
+        )
+        
+    except pd.errors.EmptyDataError:
+        return jsonify({"error": "The uploaded CSV file is empty"}), 400
+    except Exception as e:
+        logger.error(f"Error in /predict/batch: {e}")
+        return jsonify({"error": f"An error occurred processing the file: {str(e)}"}), 500
 
 
 @app.route('/models', methods=['GET'])
@@ -819,7 +835,8 @@ def compare_models():
 @require_admin_token
 def rollback_model():
     """Rollback production alias to a specified version and restore the model file."""
-    version_id = request.json.get("version_id")
+    data = request.get_json(silent=True) or {}
+    version_id = data.get("version_id")
     if not version_id:
         return jsonify({"error": "version_id is required"}), 400
     registry_path = _get_registry_path()
@@ -1058,5 +1075,9 @@ if __name__ == "__main__":
     # Set FLASK_DEBUG=1 locally to enable the Werkzeug debugger.
     port = int(get_env_or_config(ENV_FLASK_PORT, "8080", transform=int))
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+
+    # Gunicorn handles this via gunicorn.conf.py; the dev server must do it
+    # itself so a fresh clone trains a model before the first /predict.
+    ensure_model_trained()
 
     app.run(host="0.0.0.0", port=port, debug=debug)

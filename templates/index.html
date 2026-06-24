@@ -12,13 +12,14 @@
     <link href="static/css/app.css" rel="stylesheet" />
 </head>
 <body>
+    <a class="skip-link" href="#demo">Skip to demo</a>
     <div class="page-bg" aria-hidden="true"></div>
     <header class="topbar">
         <a href="/" class="brand">Red Wine IQ</a>
-        <nav class="menu">
+        <nav class="menu" aria-label="Primary">
             <a href="#about">About</a>
             <a href="#demo">Take Demo</a>
-            <a href="/dashboard" style="background: linear-gradient(135deg, #ff3366, #ff6633); color: #fff; padding: 6px 12px; border-radius: 6px; font-weight: bold; margin-left: 10px; text-decoration: none;">MLOps Dashboard</a>
+            <a href="#batch-demo">Batch Prediction</a>
         </nav>
     </header>
 
@@ -61,54 +62,75 @@
             </div>
 
             <form class="predict-form" action="/predict" method="post">
-                <label>
-                    Fixed Acidity
-                    <input type="number" name="fixed_acidity" step="any" required />
-                </label>
-                <label>
-                    Volatile Acidity
-                    <input type="number" name="volatile_acidity" step="any" required />
-                </label>
-                <label>
-                    Citric Acid
-                    <input type="number" name="citric_acid" step="any" required />
-                </label>
-                <label>
-                    Residual Sugar
-                    <input type="number" name="residual_sugar" step="any" required />
-                </label>
-                <label>
-                    Chlorides
-                    <input type="number" name="chlorides" step="any" required />
-                </label>
-                <label>
-                    Free Sulfur Dioxide
-                    <input type="number" name="free_sulfur_dioxide" step="any" required />
-                </label>
-                <label>
-                    Total Sulfur Dioxide
-                    <input type="number" name="total_sulfur_dioxide" step="any" required />
-                </label>
-                <label>
-                    Density
-                    <input type="number" name="density" step="any" required />
-                </label>
-                <label>
-                    pH
-                    <input type="number" name="pH" step="any" required />
-                </label>
-                <label>
-                    Sulphates
-                    <input type="number" name="sulphates" step="any" required />
-                </label>
-                <label>
-                    Alcohol
-                    <input type="number" name="alcohol" step="any" required />
-                </label>
+                <fieldset class="predict-fields">
+                    <legend class="sr-only">Wine chemistry values</legend>
+                    <label for="fixed_acidity">
+                        Fixed Acidity
+                        <input type="number" id="fixed_acidity" name="fixed_acidity" step="any" inputmode="decimal" required />
+                    </label>
+                    <label for="volatile_acidity">
+                        Volatile Acidity
+                        <input type="number" id="volatile_acidity" name="volatile_acidity" step="any" inputmode="decimal" required />
+                    </label>
+                    <label for="citric_acid">
+                        Citric Acid
+                        <input type="number" id="citric_acid" name="citric_acid" step="any" inputmode="decimal" required />
+                    </label>
+                    <label for="residual_sugar">
+                        Residual Sugar
+                        <input type="number" id="residual_sugar" name="residual_sugar" step="any" inputmode="decimal" required />
+                    </label>
+                    <label for="chlorides">
+                        Chlorides
+                        <input type="number" id="chlorides" name="chlorides" step="any" inputmode="decimal" required />
+                    </label>
+                    <label for="free_sulfur_dioxide">
+                        Free Sulfur Dioxide
+                        <input type="number" id="free_sulfur_dioxide" name="free_sulfur_dioxide" step="any" inputmode="decimal" required />
+                    </label>
+                    <label for="total_sulfur_dioxide">
+                        Total Sulfur Dioxide
+                        <input type="number" id="total_sulfur_dioxide" name="total_sulfur_dioxide" step="any" inputmode="decimal" required />
+                    </label>
+                    <label for="density">
+                        Density
+                        <input type="number" id="density" name="density" step="any" inputmode="decimal" required />
+                    </label>
+                    <label for="pH">
+                        pH
+                        <input type="number" id="pH" name="pH" step="any" inputmode="decimal" required />
+                    </label>
+                    <label for="sulphates">
+                        Sulphates
+                        <input type="number" id="sulphates" name="sulphates" step="any" inputmode="decimal" required />
+                    </label>
+                    <label for="alcohol">
+                        Alcohol
+                        <input type="number" id="alcohol" name="alcohol" step="any" inputmode="decimal" required />
+                    </label>
+                </fieldset>
 
                 <div class="form-actions">
                     <button type="button" class="btn btn-ghost" id="sampleBtn">Use Sample Values</button>
                     <button type="submit" class="btn btn-primary">Predict Quality</button>
+                </div>
+            </form>
+        </section>
+
+        <section id="batch-demo" class="container demo reveal">
+            <div class="section-head">
+                <h2>Batch Prediction</h2>
+                <p>Upload a CSV file containing multiple wine records to receive a downloadable file with predicted quality scores appended.</p>
+            </div>
+
+            <form class="predict-form" action="/predict/batch" method="post" enctype="multipart/form-data">
+                <label style="margin-bottom: 2rem;">
+                    Select CSV File
+                    <input type="file" name="file" accept=".csv" required style="margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); width: 100%; color: inherit;" />
+                </label>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">Upload & Predict Batch</button>
                 </div>
             </form>
         </section>

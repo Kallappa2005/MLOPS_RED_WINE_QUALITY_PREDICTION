@@ -17,6 +17,10 @@ from mlProject import logger
 _REGISTRY_VERSION_KEY = "_version_stamp"
 
 
+class RegistryError(Exception):
+    """Raised when an existing registry file is present but cannot be read."""
+
+
 def _next_version_stamp() -> str:
     return datetime.now(timezone.utc).isoformat() + ":" + uuid.uuid4().hex[:8]
 
@@ -46,14 +50,28 @@ def compute_file_hash(filepath: Path) -> str:
 
 
 def load_registry(registry_path: Path) -> dict:
-    """Load model registry from JSON file."""
-    if registry_path.exists():
+    """Load model registry from JSON file.
+
+    A missing file returns an empty registry. An existing file that cannot be
+    parsed is treated as corruption and raises RegistryError, so that callers
+    that load-mutate-save do not overwrite a recoverable file with an empty one.
+    The unreadable file is side-copied for recovery before raising.
+    """
+    if not registry_path.exists():
+        return {"production": None, "staging": None, "versions": []}
+    try:
+        with open(registry_path, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        backup_path = registry_path.with_suffix(
+            registry_path.suffix + f".corrupt-{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        )
         try:
-            with open(registry_path, "r") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Failed to load registry: {e}")
-    return {"production": None, "staging": None, "versions": []}
+            shutil.copy2(str(registry_path), str(backup_path))
+            logger.error(f"Failed to load registry: {e}. Backed up to {backup_path}")
+        except OSError:
+            logger.error(f"Failed to load registry: {e}. Backup also failed.")
+        raise RegistryError(f"Registry at {registry_path} is unreadable: {e}") from e
 
 
 def save_registry(registry_path: Path, registry: dict, expected_stamp: Optional[str] = None):
@@ -114,6 +132,10 @@ def register_model(
     stable_model_path: Optional[Path] = None,
 ) -> dict:
     """Register a model version and enforce quality gates."""
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"Cannot register model {version_id}: model file not found at {model_path}"
+        )
     lock = _lock_registry(registry_path)
     try:
         registry = load_registry(registry_path)
@@ -379,6 +401,15 @@ def rollback_to_version(registry_path: Path, version_id: str) -> bool:
                 shutil.copy2(str(versioned_path), str(stable_path))
                 checksum_path = Path(str(stable_path) + ".sha256")
                 save_checksum(stable_path, checksum_path)
+                model_info_path = stable_path.parent / "model_info.json"
+                model_info = {
+                    "version_id": version_id,
+                    "model_path": str(versioned_path),
+                    "params": v.get("params", {}),
+                    "data_hash": v.get("data_hash", ""),
+                }
+                with open(model_info_path, "w") as f:
+                    json.dump(model_info, f, indent=2)
                 registry["production"] = version_id
                 save_registry(registry_path, registry)
                 logger.info(
