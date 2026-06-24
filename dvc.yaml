@@ -59,6 +59,7 @@ stages:
       - artifacts/data_transformation/preprocessor.joblib
     outs:
       - artifacts/model_trainer/model_info.json
+      - artifacts/model_trainer/model.joblib
 
   model_evaluation:
     cmd: python src/mlProject/pipeline/stage_05_model_evaluation.py
