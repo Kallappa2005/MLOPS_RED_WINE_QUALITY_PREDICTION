@@ -1,0 +1,32 @@
+name: Scheduled Retraining
+on:
+  schedule:
+    - cron: '0 6 * * 0'  # Every Sunday at 06:00 UTC
+  workflow_dispatch:       # Manual trigger allowed
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+      - name: Retrain model
+        run: python main.py
+      - name: Validate new model
+        run: python -m pytest tests/ -v
+      - name: Deploy if metrics improved
+        run: |
+          # Compare metrics and trigger Render deploy hook if R2 improved
+          if python scripts/check_improvement.py; then
+            if [ -n "${{ secrets.RENDER_DEPLOY_HOOK }}" ]; then
+              curl -X POST ${{ secrets.RENDER_DEPLOY_HOOK }}
+            else
+              echo "RENDER_DEPLOY_HOOK secret is not set, skipping deployment trigger."
+            fi
+          fi

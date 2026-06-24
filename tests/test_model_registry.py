@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from mlProject.utils.model_registry import (
+    RegistryError,
     get_version_id,
     load_registry,
     register_model,
@@ -95,6 +96,36 @@ class TestModelRegistry(unittest.TestCase):
             self.assertEqual(stable_path.read_text(), "versioned_model_weights")
             registry = load_registry(registry_path)
             self.assertEqual(registry["production"], "v001")
+
+    def test_rollback_refreshes_model_info(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry_path = Path(tmp) / "registry.json"
+            v1 = Path(tmp) / "model_v001.joblib"
+            v2 = Path(tmp) / "model_v002.joblib"
+            v1.write_text("weights_v1")
+            v2.write_text("weights_v2")
+
+            register_model(
+                registry_path=registry_path,
+                model_path=v1,
+                version_id="v001",
+                metrics={"rmse": 0.5},
+                params={"alpha": 0.1},
+            )
+            register_model(
+                registry_path=registry_path,
+                model_path=v2,
+                version_id="v002",
+                metrics={"rmse": 0.4},
+                params={"alpha": 0.2},
+            )
+
+            self.assertTrue(rollback_to_version(registry_path, "v001"))
+
+            model_info = json.loads((Path(tmp) / "model_info.json").read_text())
+            self.assertEqual(model_info["version_id"], "v001")
+            self.assertEqual(model_info["model_path"], str(v1))
+            self.assertEqual(model_info["params"], {"alpha": 0.1})
 
     def test_rollback_fails_when_versioned_file_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -264,6 +295,41 @@ class TestModelRegistry(unittest.TestCase):
                         f"Checksum mismatch for production version {production_id}: "
                         f"src={src_cs[:8]}, dst={dst_cs[:8]}"
                     )
+
+
+    def test_load_registry_returns_default_when_file_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry_path = Path(tmp) / "registry.json"
+            registry = load_registry(registry_path)
+            self.assertEqual(registry["production"], None)
+            self.assertEqual(registry["versions"], [])
+
+    def test_load_registry_raises_on_corrupt_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry_path = Path(tmp) / "registry.json"
+            registry_path.write_text("{ not valid json")
+            with self.assertRaises(RegistryError):
+                load_registry(registry_path)
+
+    def test_corrupt_registry_is_backed_up_and_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            registry_path = Path(tmp) / "registry.json"
+            registry_path.write_text("{ corrupt")
+            model_path = Path(tmp) / "model.joblib"
+            model_path.write_text("dummy")
+
+            with self.assertRaises(RegistryError):
+                register_model(
+                    registry_path=registry_path,
+                    model_path=model_path,
+                    version_id="v20260609_143021_test",
+                    metrics={"rmse": 0.5},
+                    params={"alpha": 0.1},
+                )
+
+            self.assertEqual(registry_path.read_text(), "{ corrupt")
+            backups = list(Path(tmp).glob("registry.json.corrupt-*"))
+            self.assertTrue(backups, "corrupt registry should be backed up")
 
 
 if __name__ == "__main__":
