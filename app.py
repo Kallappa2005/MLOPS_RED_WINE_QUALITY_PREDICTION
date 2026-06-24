@@ -49,6 +49,7 @@ import joblib
 from mlProject.components.security import create_token, decode_token, require_role, AuditLogger, USER_DB
 from mlProject.components.retraining import RetrainingEngine
 from mlProject.components.observability import APILogger, ObservabilityCollector
+from mlProject.metrics import metrics_bp
 
 
 @functools.lru_cache(maxsize=1)
@@ -66,6 +67,7 @@ def _get_registry_path() -> Path:
 load_env_file()
 
 app = Flask(__name__)
+app.register_blueprint(metrics_bp)
 
 # Request logging middleware for API Gateway Request Analytics
 @app.before_request
