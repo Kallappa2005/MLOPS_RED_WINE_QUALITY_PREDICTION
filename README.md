@@ -295,3 +295,20 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **⭐ Star this repo if you found it helpful!**
+
+## 🧪 MLflow Tracking Setup
+
+This project uses MLflow to track experiments, model parameters, and evaluation metrics. 
+
+### Local Setup
+1. Open a new terminal in the project root.
+2. Ensure your virtual environment is activated:
+   ```bash
+   conda activate wineqp
+   ```
+3. Start the MLflow UI server locally:
+   ```bash
+   mlflow ui --port 5000
+   ```
+4. Open your browser and navigate to `http://localhost:5000` to view all logged runs, compare models, and track your RMSE/MAE metrics visually.
+5. In your code or `.env` file, ensure `MLFLOW_TRACKING_URI` is set to `http://localhost:5000` if you want local models to be logged to your UI.
