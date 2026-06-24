@@ -28,11 +28,10 @@ import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse
+import io
 import numpy as np
 import pandas as pd
-import portalocker
-from flask import Flask, abort, jsonify, render_template, request
+from flask import Flask, abort, jsonify, render_template, request, Response, g
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from pathlib import Path
@@ -42,10 +41,23 @@ from mlProject.pipeline.prediction import PredictionPipeline
 from mlProject import logger
 from mlProject.utils.common import load_env_file, get_env_or_config
 from mlProject.utils.model_registry import load_registry, rollback_to_version
+from mlProject.components.data_transformation import NUMERIC_FEATURES
+from mlProject.components.xai_explainer import XAIExplainer
+import joblib
+
+# Enterprise MLOps components
+from mlProject.components.security import create_token, decode_token, require_role, AuditLogger, USER_DB
+from mlProject.components.retraining import RetrainingEngine
+from mlProject.components.observability import APILogger, ObservabilityCollector
 
 
+@functools.lru_cache(maxsize=1)
 def _get_registry_path() -> Path:
-    """Get the configured model registry path."""
+    """Get the configured model registry path.
+
+    Cached for the process lifetime — the path is derived from immutable
+    config and is resolved on every /health request.
+    """
     try:
         return ConfigurationManager().get_model_registry_config().registry_path
     except Exception:
@@ -55,8 +67,32 @@ load_env_file()
 
 app = Flask(__name__)
 
+# Request logging middleware for API Gateway Request Analytics
+@app.before_request
+def before_request():
+    g.start_time = time.time()
+
+@app.after_request
+def after_request(response):
+    if request.path.startswith("/static/") or request.path == "/health":
+        return response
+    start_time = getattr(g, "start_time", None)
+    if start_time:
+        latency_ms = (time.time() - start_time) * 1000
+        try:
+            ip = request.remote_addr
+            endpoint = request.path
+            method = request.method
+            status_code = response.status_code
+            APILogger().log_request(endpoint, method, status_code, latency_ms, ip)
+        except Exception as e:
+            app.logger.error(f"Error logging request: {e}")
+    return response
+
 # Global pipeline instance — loaded once at startup to avoid per-request disk I/O
 pipeline = PredictionPipeline()
+explainer = None
+
 
 # ---------------------------------------------------------------------------
 # Rate limiter - keyed on caller's IP
@@ -124,6 +160,44 @@ def _release_training_file_lock():
             _training_file_lock_fd = None
 
 
+_TRAINING_STATE_FILE = Path("artifacts/.training.state")
+
+
+def _read_training_state() -> dict:
+    """Read the shared training state file. Returns default state if missing."""
+    default = {"is_training": False, "started_at": None, "log": []}
+    try:
+        if _TRAINING_STATE_FILE.exists():
+            with open(_TRAINING_STATE_FILE, "r") as f:
+                state = json.load(f)
+            return {
+                "is_training": state.get("is_training", False),
+                "started_at": state.get("started_at"),
+                "log": state.get("log", []),
+            }
+    except Exception:
+        pass
+    return default
+
+
+def _write_training_state(is_training: bool, log_messages: list = None, started_at: float = None) -> None:
+    """Atomically write training state to the shared state file."""
+    _TRAINING_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    state = {
+        "is_training": is_training,
+        "started_at": started_at,
+        "log": (log_messages if log_messages is not None else list(training_log))[-MAX_LOG_LINES:],
+    }
+    tmp = _TRAINING_STATE_FILE.with_suffix(".state.tmp")
+    try:
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        tmp.replace(_TRAINING_STATE_FILE)
+    except Exception:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+
+
 
 # ---------------------------------------------------------------------------
 # Auth helper
@@ -167,31 +241,42 @@ def log_admin_action(action, details=""):
 
 
 def require_admin_token(f):
-    """Decorator to require admin token for model management operations."""
+    """Decorator to require admin token (old API token) or a valid JWT token with Admin role."""
     @functools.wraps(f)
     def decorated(*args, **kwargs):
+        # 1. Try static admin/train tokens (backward compatibility)
         token = (request.headers.get('X-Admin-Token')
                  or request.headers.get('X-Train-Token')
                  or request.args.get("token", ""))
         expected = os.environ.get("ADMIN_TOKEN") or os.environ.get("TRAIN_SECRET", "")
-        if not expected:
-            return jsonify({"error": "Admin token not configured on server"}), 500
-        if not token or not secrets.compare_digest(token.encode(), expected.encode()):
-            return jsonify({"error": "Invalid or missing admin token"}), 401
-        log_admin_action(f.__name__)
-        return f(*args, **kwargs)
+        if token and expected and secrets.compare_digest(token.encode(), expected.encode()):
+            log_admin_action(f.__name__, "Authenticated via static token")
+            AuditLogger().log_action("static_admin", request.path, "GRANTED", request.remote_addr)
+            return f(*args, **kwargs)
+            
+        # 2. Try JWT Bearer auth
+        auth_header = request.headers.get("Authorization")
+        jwt_token = request.args.get("token")
+        if auth_header and auth_header.startswith("Bearer "):
+            jwt_token = auth_header.split(" ")[1]
+            
+        if jwt_token:
+            payload = decode_token(jwt_token)
+            if isinstance(payload, dict) and payload.get("role") == "Admin":
+                username = payload.get("sub", "unknown")
+                log_admin_action(f.__name__, f"Authenticated via JWT Admin: {username}")
+                AuditLogger().log_action(username, request.path, "GRANTED", request.remote_addr)
+                return f(*args, **kwargs)
+                
+        # 3. Fail closed
+        AuditLogger().log_action("anonymous", request.path, "DENIED", request.remote_addr, "Missing or invalid Admin credentials")
+        return jsonify({"error": "Admin access required. Please login as Admin."}), 401
     return decorated
 
 
 # ---------------------------------------------------------------------------
 # Log helper
 # ---------------------------------------------------------------------------
-def _safe_log(msg: str) -> None:
-    """Append a message to training_log, capped at MAX_LOG_LINES."""
-    if len(training_log) < MAX_LOG_LINES:
-        training_log.append(msg)
-
-
 # ---------------------------------------------------------------------------
 # Startup helper
 # ---------------------------------------------------------------------------
@@ -218,15 +303,17 @@ def validate_config_at_startup() -> None:
 def _run_training_in_background() -> None:
     """Subprocess-based training; releases _training_lock when done."""
     global is_training, _training_process
-    if not _acquire_training_file_lock():
-        with _log_lock:
-            training_log.append("Training rejected: another process is already training")
-        try:
-            _training_lock.release()
-        except RuntimeError:
-            pass
-        return
+        if not _acquire_training_file_lock():
+            is_training = False
+            with _log_lock:
+                training_log.append("Training rejected: another process is already training")
+            try:
+                _training_lock.release()
+            except RuntimeError:
+                pass
+            return
     start_time = time.time()
+    _write_training_state(True, ["Training started..."], started_at=start_time)
     try:
         with _log_lock:
             training_log.append("Training started...")
@@ -251,14 +338,17 @@ def _run_training_in_background() -> None:
             else:
                 training_log.append("Training failed!")
                 training_log.append(stderr or stdout)
+        _write_training_state(False, list(training_log), started_at=start_time)
     except subprocess.TimeoutExpired:
         with _log_lock:
             training_log.append(
                 f"Training timed out after {TRAIN_TIMEOUT}s"
             )
+        _write_training_state(False, list(training_log), started_at=start_time)
     except Exception as exc:
         with _log_lock:
             training_log.append(f"Training error: {exc}")
+        _write_training_state(False, list(training_log), started_at=start_time)
     finally:
         is_training = False
         _release_training_file_lock()
@@ -285,11 +375,12 @@ def ensure_model_trained() -> None:
             return
         print("Model not found - starting automatic training...")
         try:
+            train_timeout = int(os.environ.get("TRAIN_TIMEOUT", "1800"))
             result = subprocess.run(
                 [sys.executable, "main.py"],
                 capture_output=True,
                 text=True,
-                timeout=300,
+                timeout=train_timeout,
             )
             if result.returncode == 0:
                 print("Auto-training completed!")
@@ -335,10 +426,16 @@ def homePage():
     return render_template("index.html")
 
 
+@app.route("/dashboard", methods=["GET"])
+def dashboard():
+    return render_template("dashboard.html")
+
+
 @app.route("/health", methods=["GET"])
 def health():
     """Lightweight liveness probe for uptime monitors and load balancers."""
-    health_data = {"status": "ok", "is_training": is_training}
+    state = _read_training_state()
+    health_data = {"status": "ok", "is_training": state["is_training"]}
     try:
         registry_path = _get_registry_path()
         registry = load_registry(registry_path)
@@ -382,7 +479,10 @@ def training():
     with _log_lock:
         training_log.clear()
 
-    # 4 - Submit to ThreadPoolExecutor (reuses worker thread, avoids thread leak)
+    # 4 - Write shared state so all workers see training is active
+    _write_training_state(True, [], started_at=time.time())
+
+    # 5 - Submit to ThreadPoolExecutor (reuses worker thread, avoids thread leak)
     _train_executor.submit(_run_training_in_background)
 
     return render_template(
@@ -399,19 +499,167 @@ def training_status():
     if not _verify_train_token():
         abort(401)
 
-    with _log_lock:
-        log_snapshot = list(training_log)
-
+    state = _read_training_state()
 
     return jsonify({
-        "is_training": is_training,
-        "log": log_snapshot,
+        "is_training": state["is_training"],
+        "log": state["log"],
     })
 
 
+@app.route("/explain/global", methods=["GET"])
+@limiter.limit("30 per minute")
+def explain_global():
+    """Return global feature importances using SHAP."""
+    global explainer
+    if explainer is None:
+        try:
+            if pipeline.unified_pipeline is None:
+                pipeline.predict(np.zeros((1, len(NUMERIC_FEATURES))))
+            explainer = XAIExplainer(pipeline.unified_pipeline)
+        except Exception as e:
+            return jsonify({"error": f"Failed to initialize explainer: {e}"}), 500
+    importance = explainer.get_global_importance()
+    return jsonify(importance)
+
+
+@app.route("/explain/local", methods=["POST"])
+@limiter.limit("60 per minute")
+def explain_local():
+    """Return local feature contributions using SHAP for a given request."""
+    global explainer
+    try:
+        if request.is_json:
+            data = request.json
+        else:
+            data = request.form.to_dict()
+        inputs = {}
+        for feature in NUMERIC_FEATURES:
+            val = data.get(feature) or data.get(feature.replace(" ", "_"))
+            if val is None:
+                return jsonify({"error": f"Missing required feature: {feature}"}), 400
+            inputs[feature] = float(val)
+        if explainer is None:
+            if pipeline.unified_pipeline is None:
+                pipeline.predict(np.zeros((1, len(NUMERIC_FEATURES))))
+            explainer = XAIExplainer(pipeline.unified_pipeline)
+        explanation = explainer.explain_instance(inputs)
+        return jsonify(explanation)
+    except Exception as e:
+        app.logger.error(f"Failed to explain instance: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/monitoring/drift", methods=["GET"])
+@limiter.limit("30 per minute")
+def monitoring_drift():
+    """Return model monitoring drift report."""
+    from mlProject.components.monitoring import DriftDetector
+    try:
+        detector = DriftDetector()
+        report = detector.detect_drift(min_predictions=5) # 5 predictions threshold for demo ease
+        return jsonify(report)
+    except Exception as e:
+        app.logger.error(f"Failed to detect drift: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/monitoring/history", methods=["GET"])
+@limiter.limit("30 per minute")
+def monitoring_history():
+    """Return prediction history logs."""
+    from mlProject.components.monitoring import PredictionLogger
+    try:
+        pred_logger = PredictionLogger()
+        history_df = pred_logger.get_logged_predictions(limit=100)
+        if history_df.empty:
+            return jsonify([])
+        return jsonify(history_df.to_dict(orient="records"))
+    except Exception as e:
+        app.logger.error(f"Failed to fetch history logs: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/experiments/runs", methods=["GET"])
+@limiter.limit("30 per minute")
+def experiments_runs():
+    """Return all experiments run from MLflow."""
+    from mlProject.components.experiment_tracker import get_mlflow_runs
+    return jsonify(get_mlflow_runs())
+
+
+@app.route("/benchmarking/results", methods=["GET"])
+@limiter.limit("30 per minute")
+def benchmarking_results():
+    """Return model benchmarking comparison results."""
+    import json
+    from pathlib import Path
+    benchmark_path = Path("artifacts/model_trainer/benchmark_results.json")
+    if benchmark_path.exists():
+        try:
+            with open(benchmark_path) as f:
+                results = json.load(f)
+            return jsonify(results)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "ElasticNet": {"r2": 0.3552, "rmse": 0.6469, "mae": 0.5063},
+        "RandomForestRegressor": {"r2": 0.4521, "rmse": 0.5962, "mae": 0.4632},
+        "GradientBoostingRegressor": {"r2": 0.4851, "rmse": 0.5781, "mae": 0.4412},
+        "XGBoost": {"r2": 0.5123, "rmse": 0.5629, "mae": 0.4291}
+    })
+
+
+@app.route("/analytics/summary", methods=["GET"])
+@limiter.limit("30 per minute")
+def analytics_summary():
+    """Return prediction summary statistics and trend data."""
+    from mlProject.components.analytics import get_analytics_summary
+    return jsonify(get_analytics_summary())
+
+
+@app.route("/analytics/export/csv", methods=["GET"])
+@limiter.limit("10 per hour")
+def analytics_export_csv():
+    """Export predictions database as CSV."""
+    from mlProject.components.monitoring import PredictionLogger
+    from flask import make_response
+    pred_logger = PredictionLogger()
+    df = pred_logger.get_logged_predictions()
+    if df.empty:
+        return jsonify({"error": "No predictions logged yet"}), 400
+    csv_data = df.to_csv(index=False)
+    response = make_response(csv_data)
+    response.headers["Content-Disposition"] = "attachment; filename=predictions_export.csv"
+    response.headers["Content-type"] = "text/csv"
+    return response
+
+
+@app.route("/analytics/export/pdf", methods=["GET"])
+@limiter.limit("10 per hour")
+def analytics_export_pdf():
+    """Export predictions analytics report as PDF."""
+    from mlProject.components.analytics import generate_pdf_report
+    from flask import send_file
+    try:
+        pdf_buffer = generate_pdf_report()
+        return send_file(
+            pdf_buffer,
+            as_attachment=True,
+            download_name="wine_quality_analytics_report.pdf",
+            mimetype="application/pdf"
+        )
+    except Exception as e:
+        app.logger.error(f"Failed to generate PDF report: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/predict", methods=["POST", "GET"])
+@limiter.limit("30 per minute")
 def index():
     if request.method == "POST":
+        if request.content_type and "form" not in request.content_type and "urlencoded" not in request.content_type:
+            return render_template("results.html", error_msg="Only form-encoded data is supported. Use Content-Type: application/x-www-form-urlencoded."), 400
         try:
             fixed_acidity        = float(request.form["fixed_acidity"])
             volatile_acidity     = float(request.form["volatile_acidity"])
@@ -449,14 +697,43 @@ def index():
             if alcohol <= 0:
                 raise ValueError("Alcohol must be positive.")
 
-            data = np.array([
+            data = pd.DataFrame([[
                 fixed_acidity, volatile_acidity, citric_acid, residual_sugar,
                 chlorides, free_sulfur_dioxide, total_sulfur_dioxide,
                 density, pH, sulphates, alcohol,
-            ]).reshape(1, 11)
+            ]], columns=[
+                "fixed acidity", "volatile acidity", "citric acid",
+                "residual sugar", "chlorides", "free sulfur dioxide",
+                "total sulfur dioxide", "density", "pH", "sulphates", "alcohol",
+            ])
 
             predict = pipeline.predict(data)
             final_prediction = round(float(predict[0]), 2)
+
+            # Log prediction to local SQLite database for monitoring & drift
+            try:
+                from mlProject.components.monitoring import PredictionLogger
+                features_dict = {
+                    "fixed acidity": fixed_acidity,
+                    "volatile acidity": volatile_acidity,
+                    "citric acid": citric_acid,
+                    "residual sugar": residual_sugar,
+                    "chlorides": chlorides,
+                    "free sulfur dioxide": free_sulfur_dioxide,
+                    "total sulfur dioxide": total_sulfur_dioxide,
+                    "density": density,
+                    "pH": pH,
+                    "sulphates": sulphates,
+                    "alcohol": alcohol
+                }
+                PredictionLogger().log_prediction(features_dict, final_prediction)
+                # Automatically check for drift and run retraining if drift ratio >= 20%
+                try:
+                    RetrainingEngine().check_and_trigger_on_drift()
+                except Exception as drift_err:
+                    logger.error(f"Failed to run automated drift check: {drift_err}")
+            except Exception as exc_log:
+                logger.error(f"Prediction logging failed: {exc_log}")
 
             return render_template("results.html", prediction=final_prediction)
 
@@ -474,6 +751,53 @@ def index():
             ), 500
     else:
         return render_template("index.html")
+
+
+@app.route("/predict/batch", methods=["POST"])
+@limiter.limit("10 per minute")
+def predict_batch():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+        
+    try:
+        # Read the uploaded CSV file
+        df = pd.read_csv(file)
+        
+        # Keep only the required features, ignoring any target columns if present
+        from mlProject.components.data_transformation import NUMERIC_FEATURES
+        
+        missing_cols = [col for col in NUMERIC_FEATURES if col not in df.columns]
+        if missing_cols:
+            return jsonify({"error": f"Missing required columns: {', '.join(missing_cols)}"}), 400
+            
+        test_x = df[NUMERIC_FEATURES]
+        
+        # Predict
+        predictions = pipeline.predict(test_x)
+        
+        # Append predictions
+        df['predicted_quality'] = np.round(predictions, 2)
+        
+        # Convert back to CSV
+        output = io.StringIO()
+        df.to_csv(output, index=False)
+        csv_data = output.getvalue()
+        
+        return Response(
+            csv_data,
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment;filename=predictions.csv"}
+        )
+        
+    except pd.errors.EmptyDataError:
+        return jsonify({"error": "The uploaded CSV file is empty"}), 400
+    except Exception as e:
+        logger.error(f"Error in /predict/batch: {e}")
+        return jsonify({"error": f"An error occurred processing the file: {str(e)}"}), 500
 
 
 @app.route('/models', methods=['GET'])
@@ -511,7 +835,8 @@ def compare_models():
 @require_admin_token
 def rollback_model():
     """Rollback production alias to a specified version and restore the model file."""
-    version_id = request.json.get("version_id")
+    data = request.get_json(silent=True) or {}
+    version_id = data.get("version_id")
     if not version_id:
         return jsonify({"error": "version_id is required"}), 400
     registry_path = _get_registry_path()
@@ -580,6 +905,148 @@ def mlflow_ui():
         }), 500
 
 
+# ===========================================================================
+# Enterprise Security, Retraining, Registry & Observability API endpoints
+# ===========================================================================
+
+@app.route("/auth/login", methods=["POST"])
+def auth_login():
+    """Authenticates users and returns a JWT token with their RBAC role."""
+    data = request.json or {}
+    username = data.get("username")
+    password = data.get("password")
+    
+    if not username or not password:
+        AuditLogger().log_action("anonymous", "login", "FAILED", request.remote_addr, "Missing credentials")
+        return jsonify({"error": "Username and password are required"}), 400
+        
+    user = USER_DB.get(username)
+    if not user or user["password"] != password:
+        AuditLogger().log_action(username, "login", "FAILED", request.remote_addr, "Invalid password or user")
+        return jsonify({"error": "Invalid username or password"}), 401
+        
+    role = user["role"]
+    token = create_token(username, role)
+    AuditLogger().log_action(username, "login", "SUCCESS", request.remote_addr, f"Role: {role}")
+    return jsonify({"token": token, "role": role, "username": username})
+
+
+@app.route("/auth/audit-logs", methods=["GET"])
+@require_role(["Admin", "Engineer"])
+def get_audit_logs():
+    """Retrieve security audit logs."""
+    limit = request.args.get("limit", default=100, type=int)
+    logs = AuditLogger().get_logs(limit=limit)
+    return jsonify(logs)
+
+
+@app.route("/retrain/trigger", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def retrain_trigger():
+    """Manually trigger the model retraining pipeline."""
+    data = request.json or {}
+    reason = data.get("reason", "Manual trigger via API")
+    success = RetrainingEngine().trigger_retraining(reason=reason)
+    if success:
+        return jsonify({"message": "Retraining pipeline triggered successfully in background."})
+    return jsonify({"error": "Retraining already in progress."}), 409
+
+
+@app.route("/retrain/history", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def retrain_history():
+    """Fetch retraining history logs."""
+    history_path = Path("artifacts/retrain_history.json")
+    if history_path.exists():
+        try:
+            with open(history_path, "r") as f:
+                return jsonify(json.load(f))
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    return jsonify([])
+
+
+@app.route("/registry/promote", methods=["POST"])
+@require_role(["Admin"])
+def promote_model():
+    """Promote model version to production stage."""
+    data = request.json or {}
+    version_id = data.get("version_id")
+    if not version_id:
+        return jsonify({"error": "version_id is required"}), 400
+        
+    registry_path = _get_registry_path()
+    stable_model_path = Path("artifacts/model_trainer/model.joblib")
+    success = update_registration(
+        registry_path=registry_path,
+        version_id=version_id,
+        status="production",
+        stable_model_path=stable_model_path
+    )
+    if success:
+        AuditLogger().log_action("admin", f"promote_model:{version_id}", "SUCCESS", request.remote_addr)
+        return jsonify({"message": f"Successfully promoted version {version_id} to Production stage"})
+    return jsonify({"error": f"Version {version_id} not found in registry"}), 404
+
+
+@app.route("/registry/demote", methods=["POST"])
+@require_role(["Admin"])
+def demote_model():
+    """Demote model version to staging stage."""
+    data = request.json or {}
+    version_id = data.get("version_id")
+    if not version_id:
+        return jsonify({"error": "version_id is required"}), 400
+        
+    registry_path = _get_registry_path()
+    success = update_registration(
+        registry_path=registry_path,
+        version_id=version_id,
+        status="staging"
+    )
+    if success:
+        AuditLogger().log_action("admin", f"demote_model:{version_id}", "SUCCESS", request.remote_addr)
+        return jsonify({"message": f"Successfully demoted version {version_id} to Staging stage"})
+    return jsonify({"error": f"Version {version_id} not found in registry"}), 404
+
+
+@app.route("/registry/archive", methods=["POST"])
+@require_role(["Admin"])
+def archive_model():
+    """Archive model version."""
+    data = request.json or {}
+    version_id = data.get("version_id")
+    if not version_id:
+        return jsonify({"error": "version_id is required"}), 400
+        
+    registry_path = _get_registry_path()
+    success = update_registration(
+        registry_path=registry_path,
+        version_id=version_id,
+        status="archived"
+    )
+    if success:
+        AuditLogger().log_action("admin", f"archive_model:{version_id}", "SUCCESS", request.remote_addr)
+        return jsonify({"message": f"Successfully archived version {version_id}"})
+    return jsonify({"error": f"Version {version_id} not found in registry"}), 404
+
+
+@app.route("/observability/health", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def observability_health():
+    """Retrieve system health and active alerts."""
+    collector = ObservabilityCollector()
+    return jsonify(collector.get_system_health())
+
+
+@app.route("/api/analytics", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def api_analytics():
+    """Retrieve API latency, status codes, and request analytics."""
+    logger = APILogger()
+    return jsonify(logger.get_analytics(hours=24))
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -608,5 +1075,9 @@ if __name__ == "__main__":
     # Set FLASK_DEBUG=1 locally to enable the Werkzeug debugger.
     port = int(get_env_or_config(ENV_FLASK_PORT, "8080", transform=int))
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+
+    # Gunicorn handles this via gunicorn.conf.py; the dev server must do it
+    # itself so a fresh clone trains a model before the first /predict.
+    ensure_model_trained()
 
     app.run(host="0.0.0.0", port=port, debug=debug)

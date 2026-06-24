@@ -145,7 +145,7 @@ class ConfigurationManager:
             l1_ratio=float(get_env_or_config("ENV_ELASTICNET_L1_RATIO", params.l1_ratio, transform=float)),
             target_column=schema.name,
             preprocessor_path=Path(preprocessor_path),
-            use_scaler=self.params.Preprocessing.use_scaler,
+            use_scaler=self.params.get("Preprocessing", {}).get("use_scaler", True),
         )
 
         return model_trainer_config
@@ -174,7 +174,7 @@ class ConfigurationManager:
             metric_file_name=Path(get_env_or_config(ENV_MODEL_EVALUATION_METRIC_FILE_NAME, config.metric_file_name)),
             target_column=schema.name,
             preprocessor_path=Path(preprocessor_path),
-            use_scaler=self.params.Preprocessing.use_scaler,
+            use_scaler=self.params.get("Preprocessing", {}).get("use_scaler", True),
             per_class_r2_threshold=per_class_r2_threshold,
         )
 
