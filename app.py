@@ -92,6 +92,7 @@ def after_request(response):
 # Global pipeline instance — loaded once at startup to avoid per-request disk I/O
 pipeline = PredictionPipeline()
 explainer = None
+_explainer_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -303,15 +304,15 @@ def validate_config_at_startup() -> None:
 def _run_training_in_background() -> None:
     """Subprocess-based training; releases _training_lock when done."""
     global is_training, _training_process
-        if not _acquire_training_file_lock():
-            is_training = False
-            with _log_lock:
-                training_log.append("Training rejected: another process is already training")
-            try:
-                _training_lock.release()
-            except RuntimeError:
-                pass
-            return
+    if not _acquire_training_file_lock():
+        is_training = False
+        with _log_lock:
+            training_log.append("Training rejected: another process is already training")
+        try:
+            _training_lock.release()
+        except RuntimeError:
+            pass
+        return
     start_time = time.time()
     _write_training_state(True, ["Training started..."], started_at=start_time)
     try:
@@ -513,12 +514,14 @@ def explain_global():
     """Return global feature importances using SHAP."""
     global explainer
     if explainer is None:
-        try:
-            if pipeline.unified_pipeline is None:
-                pipeline.predict(np.zeros((1, len(NUMERIC_FEATURES))))
-            explainer = XAIExplainer(pipeline.unified_pipeline)
-        except Exception as e:
-            return jsonify({"error": f"Failed to initialize explainer: {e}"}), 500
+        with _explainer_lock:
+            if explainer is None:
+                try:
+                    if pipeline.unified_pipeline is None:
+                        pipeline.predict(np.zeros((1, len(NUMERIC_FEATURES))))
+                    explainer = XAIExplainer(pipeline.unified_pipeline)
+                except Exception as e:
+                    return jsonify({"error": f"Failed to initialize explainer: {e}"}), 500
     importance = explainer.get_global_importance()
     return jsonify(importance)
 
@@ -540,9 +543,11 @@ def explain_local():
                 return jsonify({"error": f"Missing required feature: {feature}"}), 400
             inputs[feature] = float(val)
         if explainer is None:
-            if pipeline.unified_pipeline is None:
-                pipeline.predict(np.zeros((1, len(NUMERIC_FEATURES))))
-            explainer = XAIExplainer(pipeline.unified_pipeline)
+            with _explainer_lock:
+                if explainer is None:
+                    if pipeline.unified_pipeline is None:
+                        pipeline.predict(np.zeros((1, len(NUMERIC_FEATURES))))
+                    explainer = XAIExplainer(pipeline.unified_pipeline)
         explanation = explainer.explain_instance(inputs)
         return jsonify(explanation)
     except Exception as e:
