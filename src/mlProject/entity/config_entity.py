@@ -69,6 +69,7 @@ class ModelEvaluationConfig:
     target_column: str
     use_scaler: bool = True
     preprocessor_path: Optional[Path] = None
+    per_class_r2_threshold: float = -0.5
     override_root_dir: Optional[Path] = None
 
 @dataclass(frozen=True)

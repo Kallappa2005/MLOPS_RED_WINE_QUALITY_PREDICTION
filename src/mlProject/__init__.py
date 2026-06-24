@@ -22,3 +22,4 @@ def _setup_logging():
 
 
 logger = _setup_logging()
+# Added type hint configurations

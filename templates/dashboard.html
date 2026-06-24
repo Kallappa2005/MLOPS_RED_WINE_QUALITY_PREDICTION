@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MLOps Operations Hub & Analytics</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+    <link href="/static/css/dashboard.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="glass-bg"></div>
+    <div class="glow-orb" id="orb1"></div>
+    <div class="glow-orb" id="orb2"></div>
+
+    <div class="dashboard-wrapper">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand-section">
+                <span class="logo-dot"></span>
+                <h1>RedWine IQ</h1>
+                <span class="version-badge">v2.1 (PROD)</span>
+            </div>
+            
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="xai">
+                    <span class="icon">🔍</span> Explainable AI
+                </button>
+                <button class="nav-item" data-tab="monitoring">
+                    <span class="icon">📡</span> Drift & Health
+                </button>
+                <button class="nav-item" data-tab="experiments">
+                    <span class="icon">🧪</span> MLflow Experiments
+                </button>
+                <button class="nav-item" data-tab="benchmarks">
+                    <span class="icon">📊</span> Multi-Model Benchmark
+                </button>
+                <button class="nav-item" data-tab="analytics">
+                    <span class="icon">💼</span> Enterprise Report
+                </button>
+                <button class="nav-item" data-tab="registry">
+                    <span class="icon">🗂️</span> Model Registry
+                </button>
+                <button class="nav-item" data-tab="retraining">
+                    <span class="icon">⚙️</span> Auto Retraining
+                </button>
+                <button class="nav-item" data-tab="observability">
+                    <span class="icon">📊</span> System Health & Alerts
+                </button>
+                <button class="nav-item" data-tab="audit">
+                    <span class="icon">🔒</span> Security Audit Logs
+                </button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <a href="/" class="btn-back">← Back to Home</a>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="content-header">
+                <div class="title-meta">
+                    <h2 id="current-tab-title">Explainable AI Insights</h2>
+                    <p id="current-tab-desc">Evaluate local predictions and view global SHAP feature impact</p>
+                </div>
+                <div class="header-controls" style="display: flex; align-items: center;">
+                    <div class="system-status">
+                        <div class="status-indicator online"></div>
+                        <span>Pipeline Active</span>
+                    </div>
+                    <div class="user-profile-widget" id="user-profile-widget" style="margin-left: 20px; display: flex; align-items: center;">
+                        <span id="user-identity-badge" class="badge-role" style="background: rgba(177, 51, 255, 0.2); border: 1px solid rgba(177, 51, 255, 0.4); padding: 2px 8px; border-radius: 12px; font-size: 11px; color: #d0a4ff;">Viewer</span>
+                        <button class="btn-logout" id="btn-logout" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 12px; margin-left: 10px; text-decoration: underline; padding: 0;">Logout</button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- TAB 1: EXPLAINABLE AI -->
+            <section class="tab-panel active" id="tab-xai">
+                <div class="grid-2col">
+                    <!-- Local explanation input/output -->
+                    <div class="dashboard-card">
+                        <div class="card-header">
+                            <h3>Local SHAP Explanation</h3>
+                            <span class="tooltip" title="Test how specific values affect quality output">info</span>
+                        </div>
+                        <form id="local-explain-form" class="compact-form">
+                            <div class="form-grid">
+                                <label>Fixed Acidity <input type="number" name="fixed_acidity" value="7.4" step="any" required /></label>
+                                <label>Volatile Acidity <input type="number" name="volatile_acidity" value="0.7" step="any" required /></label>
+                                <label>Citric Acid <input type="number" name="citric_acid" value="0.0" step="any" required /></label>
+                                <label>Residual Sugar <input type="number" name="residual_sugar" value="1.9" step="any" required /></label>
+                                <label>Chlorides <input type="number" name="chlorides" value="0.076" step="any" required /></label>
+                                <label>Free Sulfur Dioxide <input type="number" name="free_sulfur_dioxide" value="11.0" step="any" required /></label>
+                                <label>Total Sulfur Dioxide <input type="number" name="total_sulfur_dioxide" value="34.0" step="any" required /></label>
+                                <label>Density <input type="number" name="density" value="0.9978" step="any" required /></label>
+                                <label>pH <input type="number" name="pH" value="3.51" step="any" required /></label>
+                                <label>Sulphates <input type="number" name="sulphates" value="0.56" step="any" required /></label>
+                                <label>Alcohol <input type="number" name="alcohol" value="9.4" step="any" required /></label>
+                            </div>
+                            <button type="submit" class="btn btn-gradient">Explain Prediction</button>
+                        </form>
+                    </div>
+
+                    <div class="dashboard-card flex-col">
+                        <div class="card-header">
+                            <h3>Feature Force Plot</h3>
+                        </div>
+                        <div class="chart-container" style="position: relative; height: 100%; min-height: 250px;">
+                            <canvas id="localShapChart"></canvas>
+                        </div>
+                        <div id="local-explain-summary" class="summary-box">
+                            Submit the form to compute SHAP values for prediction.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-card margin-top">
+                    <div class="card-header">
+                        <h3>Global Feature Importance (SHAP)</h3>
+                        <p class="subtitle">Computed on training baseline dataset reference</p>
+                    </div>
+                    <div class="chart-container" style="height: 300px;">
+                        <canvas id="globalImportanceChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: DRIFT & MONITORING -->
+            <section class="tab-panel" id="tab-monitoring">
+                <div class="alert-banner warning" id="drift-alert" style="display: none;">
+                    <strong>Warning:</strong> Data drift detected in incoming predictions! Re-training may be required.
+                </div>
+                
+                <div class="grid-3col">
+                    <div class="metric-card">
+                        <span class="card-label">Logged Predictions</span>
+                        <h3 id="monitor-count">0</h3>
+                        <span class="trend neutral">Live Log Database</span>
+                    </div>
+                    <div class="metric-card">
+                        <span class="card-label">Drift Status</span>
+                        <h3 id="monitor-drift-status">Unknown</h3>
+                        <span class="trend" id="monitor-drift-percent">0% features drifted</span>
+                    </div>
+                    <div class="metric-card">
+                        <span class="card-label">Data Validation</span>
+                        <h3>Passed</h3>
+                        <span class="trend positive">Schema Verified</span>
+                    </div>
+                </div>
+
+                <div class="dashboard-card margin-top">
+                    <div class="card-header">
+                        <h3>Feature Distribution Drift (KS Test Results)</h3>
+                        <p class="subtitle">Compares real-time requests against baseline references</p>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="data-table" id="drift-table">
+                            <thead>
+                                <tr>
+                                    <th>Feature Name</th>
+                                    <th>Base Mean</th>
+                                    <th>Logged Mean</th>
+                                    <th>KS Statistic</th>
+                                    <th>P-Value</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Drift metrics will load here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: MLFLOW EXPERIMENT TRACKING -->
+            <section class="tab-panel" id="tab-experiments">
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <h3>MLflow Leaderboard</h3>
+                        <span class="status-indicator tracking">MLflow Configured</span>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="data-table" id="experiments-table">
+                            <thead>
+                                <tr>
+                                    <th>Run ID</th>
+                                    <th>Run Name</th>
+                                    <th>Start Time</th>
+                                    <th>Params</th>
+                                    <th>R2 Score</th>
+                                    <th>RMSE</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Live runs will load here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: MULTI-MODEL BENCHMARKS -->
+            <section class="tab-panel" id="tab-benchmarks">
+                <div class="grid-2col">
+                    <div class="dashboard-card">
+                        <div class="card-header">
+                            <h3>R2 Performance Comparison</h3>
+                        </div>
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="benchmarkChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-card">
+                        <div class="card-header">
+                            <h3>Model Leaderboard Ranking</h3>
+                            <p class="subtitle">Auto-selected model is promoted to production alias</p>
+                        </div>
+                        <div class="table-wrapper">
+                            <table class="data-table" id="benchmark-table">
+                                <thead>
+                                    <tr>
+                                        <th>Model Name</th>
+                                        <th>R2 Score</th>
+                                        <th>RMSE</th>
+                                        <th>MAE</th>
+                                        <th>Rank</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Benchmarking ranks will load here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 5: ENTERPRISE ANALYTICS & REPORTS -->
+            <section class="tab-panel" id="tab-analytics">
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <h3>Prediction Summary & Exports</h3>
+                    </div>
+                    <div class="analytics-export-controls">
+                        <div class="export-box">
+                            <h4>Raw Predictions Log</h4>
+                            <p>Download full history database snapshot in CSV format.</p>
+                            <a href="/analytics/export/csv" class="btn btn-primary">Download CSV</a>
+                        </div>
+                        <div class="export-box">
+                            <h4>Executive PDF Report</h4>
+                            <p>Generate styled PDF report with metrics summary, evaluation data, and metadata.</p>
+                            <a href="/analytics/export/pdf" class="btn btn-gradient">Generate PDF Report</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-card margin-top">
+                    <div class="card-header">
+                        <h3>Prediction Volumetric Trend</h3>
+                    </div>
+                    <div class="chart-container" style="height: 280px;">
+                        <canvas id="trendsChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 6: MODEL REGISTRY LIFECYCLE STAGE MANAGER -->
+            <section class="tab-panel" id="tab-registry">
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <h3>Model Registry Stage Manager</h3>
+                        <p class="subtitle">Promote model versions to Production stage, demote to Staging, or Archive older versions.</p>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="data-table" id="registry-manager-table">
+                            <thead>
+                                <tr>
+                                    <th>Version ID</th>
+                                    <th>Registered Date</th>
+                                    <th>R2 Score</th>
+                                    <th>RMSE</th>
+                                    <th>Status Stage</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Registry list with actions loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 7: AUTO RETRAINING SCHEDULER -->
+            <section class="tab-panel" id="tab-retraining">
+                <div class="grid-2col">
+                    <div class="dashboard-card">
+                        <div class="card-header">
+                            <h3>Retraining Pipeline Status</h3>
+                        </div>
+                        <div class="retraining-status-panel" style="padding: 20px 0;">
+                            <div class="status-gauge" style="margin-bottom: 20px;">
+                                <span class="gauge-label" style="font-weight: 600; color: var(--text-secondary);">Scheduler Status: </span>
+                                <span class="badge" id="retrain-scheduler-status" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4); padding: 4px 10px; border-radius: 12px; font-size: 12px; color: #34d399;">Active (On-Drift >= 20%)</span>
+                            </div>
+                            <div class="btn-group">
+                                <button class="btn btn-gradient" id="btn-trigger-retrain">Force Retraining Run</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="dashboard-card">
+                        <div class="card-header">
+                            <h3>Retraining Logs & History</h3>
+                        </div>
+                        <div class="history-list" id="retraining-history-list" style="max-height: 300px; overflow-y: auto;">
+                            <!-- Retraining runs loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 8: SYSTEM HEALTH & ALERTS CONSOLE -->
+            <section class="tab-panel" id="tab-observability">
+                <div class="grid-3col">
+                    <div class="metric-card">
+                        <span class="card-label">CPU Usage</span>
+                        <h3 id="obs-cpu">0.0%</h3>
+                    </div>
+                    <div class="metric-card">
+                        <span class="card-label">RAM Usage</span>
+                        <h3 id="obs-ram">0.0%</h3>
+                    </div>
+                    <div class="metric-card">
+                        <span class="card-label">API Latency</span>
+                        <h3 id="obs-latency">0 ms</h3>
+                        <span class="trend" id="obs-total-reqs">0 requests</span>
+                    </div>
+                </div>
+
+                <div class="grid-2col margin-top">
+                    <div class="dashboard-card">
+                        <div class="card-header">
+                            <h3>Operational Alerts</h3>
+                        </div>
+                        <ul class="alerts-console-list" id="obs-alerts-list" style="list-style: none; padding: 0; margin: 0; max-height: 250px; overflow-y: auto;">
+                            <!-- Alerts list -->
+                        </ul>
+                    </div>
+                    <div class="dashboard-card">
+                        <div class="card-header">
+                            <h3>API Gateway Latency Analytics</h3>
+                        </div>
+                        <div class="table-wrapper">
+                            <table class="data-table" id="obs-endpoints-table">
+                                <thead>
+                                    <tr>
+                                        <th>Endpoint</th>
+                                        <th>Requests</th>
+                                        <th>Avg Latency</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Endpoints breakdown -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 9: SECURITY AUDIT LOGS -->
+            <section class="tab-panel" id="tab-audit">
+                <div class="dashboard-card">
+                    <div class="card-header">
+                        <h3>RBAC Security Audit Trail</h3>
+                        <p class="subtitle">Securely log authentication attempts, endpoint access, and administrative actions.</p>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="data-table" id="audit-logs-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>User</th>
+                                    <th>Action / Endpoint</th>
+                                    <th>IP Address</th>
+                                    <th>Auth Status</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Audit logs list -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Premium Glassmorphic Login Overlay -->
+    <div id="login-overlay" class="login-modal-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(10, 10, 15, 0.85); backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+        <div class="login-modal-card" style="background: rgba(20, 20, 30, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); padding: 40px; border-radius: 20px; width: 100%; max-width: 400px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5); text-align: center;">
+            <div class="login-header" style="margin-bottom: 30px;">
+                <span class="logo-dot" style="display: inline-block; width: 12px; height: 12px; background: #b133ff; border-radius: 50%; box-shadow: 0 0 10px #b133ff; margin-bottom: 10px;"></span>
+                <h2 style="font-size: 24px; color: var(--text-primary); margin: 0 0 10px 0;">RedWine IQ Secure Portal</h2>
+                <p style="font-size: 14px; color: var(--text-secondary); margin: 0;">Enterprise access credentials required</p>
+            </div>
+            <form id="login-form" style="display: flex; flex-direction: column; gap: 20px; text-align: left;">
+                <div class="form-group" style="display: flex; flex-direction: column; gap: 8px;">
+                    <label for="login-username" style="font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">Username</label>
+                    <input type="text" id="login-username" placeholder="e.g. admin, engineer, viewer" required autocomplete="username" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 12px; color: var(--text-primary); font-size: 14px; outline: none; transition: border 0.3s;" />
+                </div>
+                <div class="form-group" style="display: flex; flex-direction: column; gap: 8px;">
+                    <label for="login-password" style="font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">Password</label>
+                    <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 12px; color: var(--text-primary); font-size: 14px; outline: none; transition: border 0.3s;" />
+                </div>
+                <button type="submit" class="btn btn-gradient btn-block" style="padding: 14px; font-weight: 600; border-radius: 8px; border: none; cursor: pointer; transition: transform 0.2s;">Authenticate</button>
+            </form>
+            <div id="login-error" class="login-error-msg" style="display: none; color: #ef4444; font-size: 13px; margin-top: 15px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); padding: 10px; border-radius: 8px;"></div>
+        </div>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

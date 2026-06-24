@@ -1,8 +1,30 @@
-FROM python:3.9-slim
+# Stage 1: Builder
+FROM python:3.9-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY requirements.txt .
+
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
+
+# Stage 2: Runtime
+FROM python:3.9-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH"
 
 # Default environment (override at runtime)
 ENV ENV_TAG=production \
@@ -14,16 +36,11 @@ WORKDIR /app
 
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
-COPY requirements.txt .
+# Copy virtual environment from builder
+COPY --from=builder --chown=appuser:appgroup /opt/venv /opt/venv
 
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
-
-COPY setup.py README.md ./
-COPY src/ src/
-COPY . .
-
-RUN chown -R appuser:appgroup /app
+# Copy application code
+COPY --chown=appuser:appgroup . .
 
 USER appuser
 
