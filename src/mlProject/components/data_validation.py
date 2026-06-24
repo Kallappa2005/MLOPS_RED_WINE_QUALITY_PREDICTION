@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 import pandas as pd
 
 class DataValidationError(Exception):
@@ -17,3 +19,11 @@ class DataValidation:
         except Exception as e:
             print(f"Data validation failed: {e}")
             raise
+
+
+def write_validation_status(valid: bool, status_path: str = "artifacts/data_validation/status.txt", errors: list = None):
+    os.makedirs(os.path.dirname(status_path), exist_ok=True)
+    with open(status_path, "w") as f:
+        f.write(f"Validation status: {valid}\n")
+        if errors:
+            f.write(f"Errors: {', '.join(errors)}\n")
