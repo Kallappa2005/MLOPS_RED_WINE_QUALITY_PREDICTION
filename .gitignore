@@ -216,3 +216,5 @@ artifacts/*
 
 # DVC local state
 .dvc/
+
+venv311/
