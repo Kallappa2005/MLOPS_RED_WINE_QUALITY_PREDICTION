@@ -12,6 +12,8 @@ class APILogger:
     def _init_db(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         cursor = conn.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS api_logs (
@@ -37,8 +39,8 @@ class APILogger:
             """, (datetime.utcnow().isoformat(), endpoint, method, int(status_code), float(latency_ms), ip))
             conn.commit()
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"API log write failed: {e}")
 
     def get_analytics(self, hours=24) -> dict:
         try:

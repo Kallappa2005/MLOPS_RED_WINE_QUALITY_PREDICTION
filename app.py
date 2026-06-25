@@ -69,6 +69,8 @@ load_env_file()
 
 app = Flask(__name__)
 
+_api_logger = APILogger()
+
 # Request logging middleware for API Gateway Request Analytics
 @app.before_request
 def before_request():
@@ -81,14 +83,11 @@ def after_request(response):
     start_time = getattr(g, "start_time", None)
     if start_time:
         latency_ms = (time.time() - start_time) * 1000
-        try:
-            ip = request.remote_addr
-            endpoint = request.path
-            method = request.method
-            status_code = response.status_code
-            APILogger().log_request(endpoint, method, status_code, latency_ms, ip)
-        except Exception as e:
-            app.logger.error(f"Error logging request: {e}")
+        ip = request.remote_addr
+        endpoint = request.path
+        method = request.method
+        status_code = response.status_code
+        _api_logger.log_request(endpoint, method, status_code, latency_ms, ip)
     return response
 
 # Global pipeline instance — loaded once at startup to avoid per-request disk I/O
