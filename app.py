@@ -117,7 +117,7 @@ limiter = Limiter(
 # - _training_file_lock_path provides cross-process exclusion for DVC/CLI path
 # ---------------------------------------------------------------------------
 _training_lock = threading.Lock()
-_log_lock = threading.Lock()
+_log_lock = threading.RLock()
 is_training = False
 MAX_LOG_LINES = 100
 training_log = deque(maxlen=MAX_LOG_LINES)
@@ -303,15 +303,15 @@ def validate_config_at_startup() -> None:
 def _run_training_in_background() -> None:
     """Subprocess-based training; releases _training_lock when done."""
     global is_training, _training_process
-        if not _acquire_training_file_lock():
-            is_training = False
-            with _log_lock:
-                training_log.append("Training rejected: another process is already training")
-            try:
-                _training_lock.release()
-            except RuntimeError:
-                pass
-            return
+    if not _acquire_training_file_lock():
+        is_training = False
+        with _log_lock:
+            training_log.append("Training rejected: another process is already training")
+        try:
+            _training_lock.release()
+        except RuntimeError:
+            pass
+        return
     start_time = time.time()
     _write_training_state(True, ["Training started..."], started_at=start_time)
     try:
