@@ -33,8 +33,8 @@ def get_analytics_summary() -> dict:
     }
     
     daily = df.groupby(df['timestamp'].dt.date)['prediction'].agg(['count', 'mean']).reset_index()
-    daily['date'] = daily['timestamp'].apply(lambda x: x.strftime('%Y-%m-%d'))
-    
+    daily = daily.rename(columns={daily.columns[0]: 'date'})
+    daily['date'] = daily['date'].apply(lambda x: x.strftime('%Y-%m-%d'))
     trends = []
     for idx, row in daily.iterrows():
         trends.append({
