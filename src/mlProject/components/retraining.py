@@ -73,7 +73,8 @@ class RetrainingEngine:
                 logger.exception(f"Exception during automated retraining: {e}")
                 self.log_retraining_run("failed", f"Internal error during execution: {str(e)}")
             finally:
-                self.retraining_in_progress = False
+                with self._lock:
+                    self.retraining_in_progress = False
                 
         t = threading.Thread(target=run_thread)
         t.start()
