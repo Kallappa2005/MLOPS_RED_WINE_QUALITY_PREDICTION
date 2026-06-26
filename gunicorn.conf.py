@@ -8,7 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 bind = os.environ.get("GUNICORN_BIND", "0.0.0.0:8080")
-workers = int(os.environ.get("GUNICORN_WORKERS", "2"))
+workers = int(os.environ.get("GUNICORN_WORKERS", "1"))
 timeout = int(os.environ.get("GUNICORN_TIMEOUT", "120"))
 loglevel = os.environ.get("GUNICORN_LOGLEVEL", "info")
 
@@ -101,3 +101,4 @@ def _ensure_model_trained(server):
         server.log.error(f"Python executable not found at: {sys.executable}")
     except Exception as exc:
         server.log.error(f"Auto-training failed: {exc}")
+
