@@ -60,7 +60,10 @@ class OutlierCapper(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X):
-        X_arr = np.asarray(X, dtype=float)
+        try:
+            X_arr = np.asarray(X, dtype=float)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"OutlierCapper: input contains non-numeric data: {e}") from e
         for i in range(X_arr.shape[1]):
             lower = self.lower_bounds_.get(i, -np.inf)
             upper = self.upper_bounds_.get(i, np.inf)
