@@ -213,10 +213,12 @@ class TestPreprocessing(unittest.TestCase):
 
 
     def test_outlier_capper_runs_before_scaler_in_pipeline(self):
-        """Regression test: outlier capping must be applied BEFORE standardization."""
-        config = DataTransformationConfig(
-            root_dir=Path("/tmp"),
-            data_path=Path("/tmp/wine.csv"),
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            """Regression test: outlier capping must be applied BEFORE standardization."""
+            config = DataTransformationConfig(
+            root_dir=Path(tmpdir),
+            data_path=Path(tmpdir) / "wine.csv",
             test_size=0.25,
             random_state=42,
             stratify_column="quality",
@@ -226,17 +228,17 @@ class TestPreprocessing(unittest.TestCase):
             outlier_method="iqr",
             outlier_iqr_multiplier=1.5,
             impute_missing=False,
-        )
-        dt = DataTransformation(config)
-        pipeline = dt._build_preprocessing_pipeline()
-        numeric = pipeline.named_steps["numeric"]
-        step_names = [name for name, _ in numeric.steps]
-        scaler_idx = step_names.index("scaler")
-        capper_idx = step_names.index("outlier_capper")
-        self.assertLess(
+            )
+            dt = DataTransformation(config)
+            pipeline = dt._build_preprocessing_pipeline()
+            numeric = pipeline.named_steps["numeric"]
+            step_names = [name for name, _ in numeric.steps]
+            scaler_idx = step_names.index("scaler")
+            capper_idx = step_names.index("outlier_capper")
+            self.assertLess(
             capper_idx, scaler_idx,
             "OutlierCapper must appear before StandardScaler in the pipeline"
-        )
+            )
 
     def test_outlier_capper_on_right_skewed_data_before_scaler(self):
         """Verify capping raw data then scaling gives expected distribution."""
@@ -258,3 +260,4 @@ class TestPreprocessing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
