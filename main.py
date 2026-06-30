@@ -2,8 +2,9 @@ from mlProject import logger
 from mlProject.pipeline.stage_01_data_ingestion import DataIngestionTrainingPipeline
 from mlProject.pipeline.stage_02_data_validation import DataValidationTrainingPipeline
 from mlProject.pipeline.stage_03_data_transformation import DataTransformationTrainingPipeline
-from mlProject.pipeline.stage_04_model_trainer import ModelTrainerPipeline
-from mlProject.pipeline.stage_05_model_evaluation import ModelEvaluationPipeline
+from mlProject.pipeline.stage_04_hyperparameter_tuning import HyperparameterTuningPipeline
+from mlProject.pipeline.stage_05_model_trainer import ModelTrainerPipeline
+from mlProject.pipeline.stage_06_model_evaluation import ModelEvaluationPipeline
 
 STAGE_NAME = "Data Ingestion Stage"
 
@@ -39,6 +40,17 @@ except Exception as e:
     logger.exception(f"Stage '{STAGE_NAME}' failed: {e}")
     raise
     
+STAGE_NAME = "Hyperparameter Tuning Stage"
+
+try:
+    logger.info(f">>>>>> stage {STAGE_NAME} started <<<<<<")
+    hyperparameter_tuning = HyperparameterTuningPipeline()
+    hyperparameter_tuning.main()
+    logger.info(f">>>>>> stage {STAGE_NAME} completed <<<<<<\n\nx==========x")
+except Exception as e:
+    logger.exception(f"Stage '{STAGE_NAME}' failed: {e}")
+    raise
+
 STAGE_NAME = "Model Trainer Stage"
 
 try:

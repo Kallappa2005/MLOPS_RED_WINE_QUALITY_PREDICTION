@@ -36,6 +36,12 @@ data_transformation:
   data_path: artifacts/data_ingestion/winequality-red.csv
   preprocessor_path: artifacts/data_transformation/preprocessor.joblib
 
+# Hyperparameter Tuning Stage
+# Tunes ElasticNet using Optuna
+hyperparameter_tuning:
+  root_dir: artifacts/hyperparameter_tuning
+  n_trials: 20
+
 # Model Trainer Stage
 # Trains ElasticNet regression model with configurable hyperparameters
 # Override root_dir via ENV_MODEL_TRAINER_ROOT_DIR

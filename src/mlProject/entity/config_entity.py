@@ -45,6 +45,16 @@ class DataTransformationConfig:
     override_test_size: Optional[float] = None
 
 @dataclass(frozen=True)
+class HyperparameterTuningConfig:
+    root_dir: Path
+    train_data_path: Path
+    test_data_path: Path
+    target_column: str
+    preprocessor_path: Optional[Path] = None
+    use_scaler: bool = True
+    n_trials: int = 20
+
+@dataclass(frozen=True)
 class ModelTrainerConfig:
     root_dir: Path
     train_data_path: Path
