@@ -40,7 +40,7 @@ from mlProject.constants import ENV_FLASK_PORT, ENV_FLASK_DEBUG, ENV_TAG
 from mlProject.pipeline.prediction import PredictionPipeline
 from mlProject import logger
 from mlProject.utils.common import load_env_file, get_env_or_config
-from mlProject.utils.model_registry import load_registry, rollback_to_version
+from mlProject.utils.model_registry import load_registry, rollback_to_version, update_registration
 from mlProject.components.data_transformation import NUMERIC_FEATURES
 from mlProject.components.xai_explainer import XAIExplainer
 import joblib
