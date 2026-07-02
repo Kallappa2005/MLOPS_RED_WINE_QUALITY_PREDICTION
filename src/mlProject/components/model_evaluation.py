@@ -218,7 +218,7 @@ class ModelEvaluation:
                                 tracker.transition_model_stage(
                                     model_name=registry_config.mlflow_model_name,
                                     version=version_id,
-                                    stage=status.capitalize(),
+                                    stage={"evaluated": "Staging", "approved": "Production", "archived": "Archived"}.get(status.lower(), "Staging"),
                                 )
                                 break
                 tracker.end_run()
