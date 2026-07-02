@@ -175,8 +175,11 @@ class TestModelRegistry(unittest.TestCase):
             existing_path.write_text("weights")
             (Path(str(existing_path) + ".sha256")).write_text("hash")
             (Path(tmp) / "model.joblib").write_text("weights")
-            missing_path = Path(tmp) / "model_v002.joblib"
-
+            
+            # Create v002 file but then delete it to simulate missing file after registration
+            v002_path = Path(tmp) / "model_v002.joblib"
+            v002_path.write_text("weights2")
+            
             register_model(
                 registry_path=registry_path,
                 model_path=existing_path,
@@ -186,11 +189,14 @@ class TestModelRegistry(unittest.TestCase):
             )
             register_model(
                 registry_path=registry_path,
-                model_path=missing_path,
+                model_path=v002_path,
                 version_id="v002",
                 metrics={"rmse": 0.6},
                 params={"alpha": 0.2},
             )
+            
+            # Now delete v002 file to simulate missing file
+            v002_path.unlink()
 
             issues = validate_registry(registry_path)
             self.assertTrue(any("v002" in issue for issue in issues))
