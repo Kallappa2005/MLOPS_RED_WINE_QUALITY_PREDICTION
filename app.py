@@ -41,6 +41,7 @@ from mlProject.pipeline.prediction import PredictionPipeline
 from mlProject import logger
 from mlProject.utils.common import load_env_file, get_env_or_config
 from mlProject.utils.model_registry import load_registry, rollback_to_version
+from mlProject.utils.unified_registry import get_unified_registry
 from mlProject.components.data_transformation import NUMERIC_FEATURES
 from mlProject.components.xai_explainer import XAIExplainer
 import joblib
@@ -456,6 +457,60 @@ def health():
     return jsonify(health_data), 200
 
 
+@app.route("/health/registry", methods=["GET"])
+def registry_health():
+    """Health check endpoint to verify registry consistency between JSON and MLflow."""
+    try:
+        registry_path = _get_registry_path()
+        unified_registry = get_unified_registry(registry_path)
+        issues = unified_registry.validate()
+
+        health_status = {
+            "status": "healthy" if not issues else "degraded",
+            "issues_count": len(issues),
+            "issues": issues,
+        }
+
+        # Add sync status if MLflow is enabled
+        if unified_registry.mlflow_tracker and unified_registry.mlflow_tracker.use_mlflow:
+            health_status["mlflow_enabled"] = True
+        else:
+            health_status["mlflow_enabled"] = False
+
+        status_code = 200 if not issues else 200  # Still return 200 for monitoring
+        return jsonify(health_status), status_code
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Registry health check failed: {str(e)}",
+        }), 500
+
+
+@app.route("/health/registry/sync", methods=["POST"])
+@require_admin_token
+def sync_registries():
+    """Sync MLflow registry state from JSON registry."""
+    try:
+        registry_path = _get_registry_path()
+        unified_registry = get_unified_registry(registry_path)
+        result = unified_registry.sync_from_json()
+
+        log_admin_action(
+            "registry_sync",
+            f"synced={result['synced']}, actions={len(result['actions'])}"
+        )
+
+        return jsonify({
+            "message": "Registry sync completed",
+            "synced": result["synced"],
+            "actions": result["actions"],
+        })
+    except Exception as e:
+        return jsonify({
+            "error": f"Registry sync failed: {str(e)}",
+        }), 500
+
+
 @app.route("/train", methods=["GET"])
 @limiter.limit("10 per hour")           # Hard cap: 10 triggers/hr per IP
 def training():
@@ -845,7 +900,8 @@ def rollback_model():
         "rollback_initiated",
         f"target_version={version_id}, current_production={current_prod}"
     )
-    if rollback_to_version(registry_path, version_id):
+    unified_registry = get_unified_registry(registry_path)
+    if unified_registry.rollback_to_version(version_id):
         log_admin_action("rollback_success", f"rolled_back_to={version_id}")
         return jsonify({"message": f"Rolled back to version {version_id} and restored model file"})
     log_admin_action("rollback_failed", f"version_{version_id}_not_found")
