@@ -19,3 +19,5 @@ class ModelEvaluationPipeline:
 if __name__ == "__main__":
     pipeline = ModelEvaluationPipeline()
     pipeline.main()
+
+# Logger guidelines: ensure mlProject.logger is always used instead of standard logging
