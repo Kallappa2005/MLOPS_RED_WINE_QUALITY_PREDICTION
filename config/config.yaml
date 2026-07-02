@@ -63,7 +63,7 @@ model_registry:
   staging_alias: staging
   max_versions_to_keep: 10
   quality_gate_max_rmse_degradation_pct: 5.0
-  use_mlflow: false
+  use_mlflow: true
   mlflow_tracking_uri: ./mlruns
   mlflow_experiment_name: wine_quality_prediction
   mlflow_registry_uri: ""
