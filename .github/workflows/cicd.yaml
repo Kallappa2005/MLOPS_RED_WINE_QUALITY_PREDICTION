@@ -25,9 +25,17 @@ jobs:
         pip install pytest
         pip install -e .
         
+    - name: Smoke test app import
+      run: |
+        python -c "import app"
+
     - name: Verify DVC lock consistency
       run: |
         dvc diff --md || echo "No DVC data drift detected"
+
+    - name: Validate issue template filenames
+      run: |
+        python scripts/validate_templates.py
 
     - name: Run tests
       run: |
