@@ -1,0 +1,23 @@
+channels:
+- conda-forge
+dependencies:
+- python=3.11.9
+- pip<=26.1.2
+- pip:
+  - mlflow==2.12.2
+  - chromadb==1.5.0
+  - cloudpickle==3.1.2
+  - jaraco-classes==3.4.0
+  - jaraco-context==6.0.1
+  - jaraco-functools==4.1.0
+  - jaraco-text==4.0.0
+  - lz4==4.4.5
+  - mlproject==0.0.0
+  - numpy==1.24.3
+  - packaging==24.2
+  - pandas==2.0.3
+  - psutil==7.2.1
+  - pyyaml==6.0.1
+  - scikit-learn==1.2.2
+  - scipy==1.10.1
+name: mlflow-env
