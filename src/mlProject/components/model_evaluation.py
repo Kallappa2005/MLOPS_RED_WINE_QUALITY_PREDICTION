@@ -130,6 +130,11 @@ class ModelEvaluation:
         registry_path = registry_config.registry_path
         quality_gate = registry_config.quality_gate_max_rmse_degradation_pct
 
+        # Capture the previously-deployed production metrics before registering
+        # the new version, otherwise the new version becomes production and we
+        # would compare it against itself.
+        previous_metrics = self._load_previous_metrics(registry_path)
+
         params = model_info.get("params", {})
         data_hash = model_info.get("data_hash", "")
 
@@ -166,7 +171,6 @@ class ModelEvaluation:
             save_checksum(stable_path, stable_checksum_path)
             logger.info(f"Model {version_id} promoted to stable path: {stable_path}")
 
-        previous_metrics = self._load_previous_metrics(registry_path)
         if previous_metrics:
             comparison = self._compare_metrics(scores, previous_metrics)
             comparison_path = self.config.root_dir / "metrics_comparison.json"

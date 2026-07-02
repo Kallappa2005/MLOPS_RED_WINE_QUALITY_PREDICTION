@@ -21,3 +21,7 @@ A clear and concise description of any alternative solutions or features you've 
 ### Additional Context
 <!-- For anything else not covered above -->
 Add any other context, mockup diagrams, or architectural thoughts about the feature request here (e.g., adding new hyperparameter tuning configs to params.yaml, modifying metrics evaluation trackers, or updating Dockerfile layers).
+
+## Benefits
+
+Describe how this feature will improve the project, contributor experience, model performance, maintainability, or usability.

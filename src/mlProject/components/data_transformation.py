@@ -12,7 +12,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.base import BaseEstimator, TransformerMixin
 import pandas as pd
 from mlProject.entity.config_entity import DataTransformationConfig
-
+from mlProject import logger
 
 NUMERIC_FEATURES = [
     "fixed acidity", "volatile acidity", "citric acid",
@@ -314,4 +314,4 @@ class DataTransformation:
         if self.config.use_scaler:
             logger.info(f"Scaled train shape: {train_scaled_df.shape}, Scaled test shape: {test_scaled_df.shape}")
 
-        print(f"Train: {train.shape}, Test: {test.shape}")
+        logger.info(f"Train: {train.shape}, Test: {test.shape}")
