@@ -28,3 +28,4 @@ class DataTransformationTrainingPipeline:
 if __name__ == "__main__":
     pipeline = DataTransformationTrainingPipeline()
     pipeline.main()
+# Scope guidelines: avoid shadowing module-level config imports with local variable names
