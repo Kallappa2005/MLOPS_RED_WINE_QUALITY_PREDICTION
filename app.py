@@ -43,6 +43,7 @@ from mlProject.utils.common import load_env_file, get_env_or_config
 from mlProject.utils.model_registry import load_registry, rollback_to_version
 from mlProject.components.data_transformation import NUMERIC_FEATURES
 from mlProject.components.xai_explainer import XAIExplainer
+from werkzeug.security import check_password_hash
 import joblib
 
 # Enterprise MLOps components
@@ -303,15 +304,15 @@ def validate_config_at_startup() -> None:
 def _run_training_in_background() -> None:
     """Subprocess-based training; releases _training_lock when done."""
     global is_training, _training_process
-        if not _acquire_training_file_lock():
-            is_training = False
-            with _log_lock:
-                training_log.append("Training rejected: another process is already training")
-            try:
-                _training_lock.release()
-            except RuntimeError:
-                pass
-            return
+    if not _acquire_training_file_lock():
+        is_training = False
+        with _log_lock:
+            training_log.append("Training rejected: another process is already training")
+        try:
+            _training_lock.release()
+        except RuntimeError:
+            pass
+        return
     start_time = time.time()
     _write_training_state(True, ["Training started..."], started_at=start_time)
     try:
@@ -921,7 +922,7 @@ def auth_login():
         return jsonify({"error": "Username and password are required"}), 400
         
     user = USER_DB.get(username)
-    if not user or user["password"] != password:
+    if not user or not check_password_hash(user.get("password_hash", ""), password):
         AuditLogger().log_action(username, "login", "FAILED", request.remote_addr, "Invalid password or user")
         return jsonify({"error": "Invalid username or password"}), 401
         
