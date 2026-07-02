@@ -1,0 +1,14 @@
+aliases: []
+creation_timestamp: 1782028393864
+current_stage: None
+description: null
+last_updated_timestamp: 1782028393864
+name: WineQualityElasticNet
+run_id: 50d446c940ca4b48b05f53f750fde8f3
+run_link: null
+source: file:///D:/mlops/MLOPS_RED_WINE_QUALITY_PREDICTION/mlruns/452225537666901558/50d446c940ca4b48b05f53f750fde8f3/artifacts/model
+status: READY
+status_message: null
+storage_location: file:///D:/mlops/MLOPS_RED_WINE_QUALITY_PREDICTION/mlruns/452225537666901558/50d446c940ca4b48b05f53f750fde8f3/artifacts/model
+user_id: null
+version: 4

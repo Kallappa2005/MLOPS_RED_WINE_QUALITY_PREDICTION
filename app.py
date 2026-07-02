@@ -303,15 +303,15 @@ def validate_config_at_startup() -> None:
 def _run_training_in_background() -> None:
     """Subprocess-based training; releases _training_lock when done."""
     global is_training, _training_process
-        if not _acquire_training_file_lock():
-            is_training = False
-            with _log_lock:
-                training_log.append("Training rejected: another process is already training")
-            try:
-                _training_lock.release()
-            except RuntimeError:
-                pass
-            return
+    if not _acquire_training_file_lock():
+        is_training = False
+        with _log_lock:
+            training_log.append("Training rejected: another process is already training")
+        try:
+            _training_lock.release()
+        except RuntimeError:
+            pass
+        return
     start_time = time.time()
     _write_training_state(True, ["Training started..."], started_at=start_time)
     try:
@@ -921,7 +921,8 @@ def auth_login():
         return jsonify({"error": "Username and password are required"}), 400
         
     user = USER_DB.get(username)
-    if not user or user["password"] != password:
+    from werkzeug.security import check_password_hash
+    if not user or not check_password_hash(user["password_hash"], password):
         AuditLogger().log_action(username, "login", "FAILED", request.remote_addr, "Invalid password or user")
         return jsonify({"error": "Invalid username or password"}), 401
         
@@ -1045,6 +1046,535 @@ def api_analytics():
     """Retrieve API latency, status codes, and request analytics."""
     logger = APILogger()
     return jsonify(logger.get_analytics(hours=24))
+
+
+# ===========================================================================
+# Phase 11-19: Command Center Integration Endpoints
+# ===========================================================================
+
+@app.route("/assistant/chat", methods=["POST"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def assistant_chat():
+    data = request.json or {}
+    features = data.get("features", {})
+    prediction = data.get("prediction", 5.6)
+    from mlProject.components.ai_assistant import PredictionAssistant
+    assistant = PredictionAssistant()
+    explanation = assistant.explain_prediction_nl(features, prediction)
+    recs = assistant.generate_recommendations(features, prediction)
+    return jsonify({
+        "status": "success",
+        "explanation": explanation,
+        "recommendations": recs
+    })
+
+
+@app.route("/data-quality/check", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def data_quality_check():
+    from mlProject.components.data_quality import QualityValidator
+    import pandas as pd
+    baseline_path = "artifacts/data_ingestion/winequality-red.csv"
+    if os.path.exists(baseline_path):
+        df = pd.read_csv(baseline_path)
+    else:
+        df = pd.DataFrame({
+            "alcohol": [12.0, 11.5, 12.5, 11.0, 15.0],
+            "volatile acidity": [0.3, 0.4, 0.25, 0.35, 1.2],
+            "pH": [3.2, 3.3, 3.1, 3.25, 2.5]
+        })
+    validator = QualityValidator()
+    report = validator.analyze_dataset_quality(df)
+    return jsonify(report)
+
+
+@app.route("/feature-store/serve", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def serve_features():
+    from mlProject.components.feature_store import EnterpriseFeatureStore
+    store = EnterpriseFeatureStore()
+    return jsonify(store.get_feature_catalog())
+
+
+@app.route("/feature-store/register", methods=["POST"])
+@require_role(["Admin"])
+def register_feature():
+    data = request.json or {}
+    name = data.get("name")
+    version = data.get("version")
+    description = data.get("description")
+    data_type = data.get("data_type")
+    mean_val = data.get("mean_val")
+    if not name or not version:
+        return jsonify({"error": "name and version are required"}), 400
+    from mlProject.components.feature_store import EnterpriseFeatureStore
+    store = EnterpriseFeatureStore()
+    success = store.register_feature(name, version, description, data_type, mean_val)
+    if success:
+        return jsonify({"message": f"Feature {name} registered successfully"})
+    return jsonify({"error": "Failed to register feature"}), 500
+
+
+@app.route("/alerts/active", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def get_active_alerts():
+    from mlProject.components.alerting_framework import AlertEngine
+    engine = AlertEngine()
+    return jsonify(engine.get_active_alerts())
+
+
+@app.route("/alerts/trigger", methods=["POST"])
+@require_role(["Admin"])
+def trigger_system_alert():
+    data = request.json or {}
+    metric = data.get("metric")
+    value = data.get("value")
+    threshold = data.get("threshold")
+    severity = data.get("severity")
+    message = data.get("message")
+    if not metric or value is None:
+        return jsonify({"error": "metric and value are required"}), 400
+    from mlProject.components.alerting_framework import AlertEngine
+    engine = AlertEngine()
+    success = engine.trigger_alert(metric, value, threshold or 0.0, severity or "WARNING", message or "")
+    if success:
+        return jsonify({"message": "Alert triggered successfully"})
+    return jsonify({"error": "Failed to trigger alert"}), 500
+
+
+@app.route("/alerts/resolve/<int:alert_id>", methods=["POST"])
+@require_role(["Admin"])
+def resolve_system_alert(alert_id):
+    from mlProject.components.alerting_framework import AlertEngine
+    engine = AlertEngine()
+    success = engine.resolve_alert(alert_id)
+    if success:
+        return jsonify({"message": f"Alert {alert_id} resolved successfully"})
+    return jsonify({"error": "Failed to resolve alert"}), 500
+
+
+@app.route("/drift/advanced", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def get_advanced_drift():
+    from mlProject.components.drift_intelligence import AdvancedDriftEngine
+    import sqlite3
+    engine = AdvancedDriftEngine()
+    db_path = "artifacts/predictions.db"
+    samples = []
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM predictions ORDER BY timestamp DESC LIMIT 20")
+        rows = cursor.fetchall()
+        samples = [dict(r) for r in rows]
+        conn.close()
+    except Exception:
+        pass
+    if not samples:
+        samples = [
+            {"alcohol": 12.5, "volatile acidity": 0.3, "pH": 3.2, "sulphates": 0.6, "prediction": 5.8},
+            {"alcohol": 12.6, "volatile acidity": 0.31, "pH": 3.19, "sulphates": 0.61, "prediction": 5.9},
+            {"alcohol": 12.4, "volatile acidity": 0.29, "pH": 3.21, "sulphates": 0.59, "prediction": 5.7},
+            {"alcohol": 12.5, "volatile acidity": 0.3, "pH": 3.2, "sulphates": 0.6, "prediction": 5.8},
+            {"alcohol": 12.5, "volatile acidity": 0.3, "pH": 3.2, "sulphates": 0.6, "prediction": 5.8}
+        ]
+    f_drift = engine.detect_feature_drift(samples)
+    c_drift = engine.detect_concept_drift(samples)
+    
+    # Convert numpy types to native Python types
+    f_drift["drift_detected"] = bool(f_drift.get("drift_detected"))
+    if "drift_ratios" in f_drift:
+        f_drift["drift_ratios"] = {k: float(v) for k, v in f_drift["drift_ratios"].items()}
+        
+    c_drift["concept_drift_detected"] = bool(c_drift.get("concept_drift_detected"))
+    if "current_performance_index" in c_drift:
+        c_drift["current_performance_index"] = float(c_drift["current_performance_index"])
+        
+    return jsonify({
+        "feature_drift": f_drift,
+        "concept_drift": c_drift
+    })
+
+
+@app.route("/governance/manifest", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def get_governance_manifest():
+    from mlProject.components.governance import ModelGovernanceEngine
+    engine = ModelGovernanceEngine()
+    return jsonify(engine.load_manifest())
+
+
+@app.route("/governance/request-promotion", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def request_promotion():
+    data = request.json or {}
+    version_id = data.get("version_id")
+    requested_by = data.get("requested_by")
+    if not version_id or not requested_by:
+        return jsonify({"error": "version_id and requested_by are required"}), 400
+    from mlProject.components.governance import ModelGovernanceEngine
+    engine = ModelGovernanceEngine()
+    result = engine.request_promotion_approval(version_id, requested_by)
+    return jsonify(result)
+
+
+@app.route("/governance/compliance-check", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def compliance_check():
+    data = request.json or {}
+    version_id = data.get("version_id")
+    rmse = data.get("rmse")
+    r2 = data.get("r2")
+    if not version_id or rmse is None or r2 is None:
+        return jsonify({"error": "version_id, rmse and r2 are required"}), 400
+    from mlProject.components.governance import ModelGovernanceEngine
+    engine = ModelGovernanceEngine()
+    result = engine.run_compliance_check(version_id, rmse, r2)
+    return jsonify(result)
+
+
+@app.route("/governance/approve", methods=["POST"])
+@require_role(["Admin"])
+def approve_promotion():
+    data = request.json or {}
+    version_id = data.get("version_id")
+    approved_by = data.get("approved_by")
+    if not version_id or not approved_by:
+        return jsonify({"error": "version_id and approved_by are required"}), 400
+    from mlProject.components.governance import ModelGovernanceEngine
+    engine = ModelGovernanceEngine()
+    success = engine.approve_promotion(version_id, approved_by)
+    if success:
+        return jsonify({"message": f"Successfully approved version {version_id}"})
+    return jsonify({"error": f"Promotion request for version {version_id} not found or already approved"}), 400
+
+
+@app.route("/optimization/run", methods=["POST"])
+@require_role(["Admin"])
+def run_optimization():
+    data = request.json or {}
+    model_type = data.get("model_type", "ElasticNet")
+    search_strategy = data.get("strategy", "random")
+    iterations = data.get("iterations", 5)
+    from mlProject.components.hyperparameter_optimizer import HyperparameterOptimizer
+    opt = HyperparameterOptimizer()
+    sweep = opt.run_optimization_sweep(model_type, search_strategy, iterations)
+    return jsonify(sweep)
+
+
+@app.route("/federated/aggregate", methods=["POST"])
+@require_role(["Admin"])
+def aggregate_parameters():
+    from mlProject.components.federated_learning import FederatedCoordinator
+    coord = FederatedCoordinator()
+    report = coord.collect_and_aggregate()
+    return jsonify(report)
+
+
+
+
+# ===========================================================================
+# PHASES 21-30: Enterprise Autonomous AI Governance & Intelligence Platform
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Phase 21: Enterprise Model Registry Hub
+# ---------------------------------------------------------------------------
+@app.route("/registry/models", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def registry_list_models():
+    from mlProject.components.model_registry import EnterpriseModelRegistry
+    reg = EnterpriseModelRegistry()
+    return jsonify(reg.list_models())
+
+
+@app.route("/registry/register", methods=["POST"])
+@require_role(["Admin"])
+def registry_register_model():
+    from mlProject.components.model_registry import EnterpriseModelRegistry
+    data = request.json or {}
+    reg = EnterpriseModelRegistry()
+    result = reg.register_model(
+        name=data.get("name", "unnamed_model"),
+        version=data.get("version", "1.0.0"),
+        framework=data.get("framework", "sklearn"),
+        metrics=data.get("metrics", {}),
+        artifact_path=data.get("artifact_path", "artifacts/model.pkl"),
+        owner=data.get("owner", "admin")
+    )
+    return jsonify(result), 201
+
+
+@app.route("/registry/version-history", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def registry_version_history():
+    from mlProject.components.model_registry import EnterpriseModelRegistry
+    model_name = request.args.get("model_name")
+    reg = EnterpriseModelRegistry()
+    return jsonify(reg.version_history(model_name))
+
+
+# ---------------------------------------------------------------------------
+# Phase 22: Autonomous Model Retraining Engine
+# ---------------------------------------------------------------------------
+@app.route("/retraining/trigger", methods=["POST"])
+@require_role(["Admin"])
+def retraining_trigger():
+    from mlProject.components.retraining_engine import AutonomousRetrainingEngine
+    data = request.json or {}
+    engine = AutonomousRetrainingEngine()
+    result = engine.trigger_retraining(
+        model_name=data.get("model_name", "wine_quality_v1"),
+        reason=data.get("reason", "manual_trigger"),
+        config=data.get("config", {})
+    )
+    return jsonify(result)
+
+
+@app.route("/retraining/history", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def retraining_history():
+    from mlProject.components.retraining_engine import AutonomousRetrainingEngine
+    engine = AutonomousRetrainingEngine()
+    return jsonify(engine.get_history())
+
+
+@app.route("/retraining/recommendations", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def retraining_recommendations():
+    from mlProject.components.retraining_engine import AutonomousRetrainingEngine
+    engine = AutonomousRetrainingEngine()
+    return jsonify(engine.get_recommendations())
+
+
+# ---------------------------------------------------------------------------
+# Phase 23: Enterprise Data Lineage Platform
+# ---------------------------------------------------------------------------
+@app.route("/lineage/graph", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def lineage_graph():
+    from mlProject.components.data_lineage import DataLineagePlatform
+    platform = DataLineagePlatform()
+    return jsonify(platform.get_graph())
+
+
+@app.route("/lineage/source-trace", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def lineage_source_trace():
+    from mlProject.components.data_lineage import DataLineagePlatform
+    node_id = request.args.get("node_id", "pred_output")
+    platform = DataLineagePlatform()
+    return jsonify(platform.source_trace(node_id))
+
+
+@app.route("/lineage/report", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def lineage_report():
+    from mlProject.components.data_lineage import DataLineagePlatform
+    platform = DataLineagePlatform()
+    return jsonify(platform.get_report())
+
+
+# ---------------------------------------------------------------------------
+# Phase 24: AI Security Intelligence Center
+# ---------------------------------------------------------------------------
+@app.route("/security/threats", methods=["GET"])
+@require_role(["Admin"])
+def security_threats():
+    from mlProject.components.security_intelligence import AISecurityIntelligenceCenter
+    center = AISecurityIntelligenceCenter()
+    return jsonify(center.get_threats())
+
+
+@app.route("/security/anomalies", methods=["GET"])
+@require_role(["Admin"])
+def security_anomalies():
+    from mlProject.components.security_intelligence import AISecurityIntelligenceCenter
+    center = AISecurityIntelligenceCenter()
+    return jsonify(center.get_anomalies())
+
+
+@app.route("/security/report", methods=["GET"])
+@require_role(["Admin"])
+def security_report():
+    from mlProject.components.security_intelligence import AISecurityIntelligenceCenter
+    center = AISecurityIntelligenceCenter()
+    return jsonify(center.get_security_report())
+
+
+# ---------------------------------------------------------------------------
+# Phase 25: Multi-Cloud MLOps Control Plane
+# ---------------------------------------------------------------------------
+@app.route("/cloud/providers", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def cloud_providers():
+    from mlProject.components.multi_cloud import MultiCloudControlPlane
+    plane = MultiCloudControlPlane()
+    return jsonify(plane.get_providers())
+
+
+@app.route("/cloud/sync", methods=["POST"])
+@require_role(["Admin"])
+def cloud_sync():
+    from mlProject.components.multi_cloud import MultiCloudControlPlane
+    plane = MultiCloudControlPlane()
+    return jsonify(plane.sync_providers())
+
+
+@app.route("/cloud/status", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def cloud_status():
+    from mlProject.components.multi_cloud import MultiCloudControlPlane
+    plane = MultiCloudControlPlane()
+    return jsonify(plane.get_cloud_status())
+
+
+# ---------------------------------------------------------------------------
+# Phase 26: Enterprise Cost Optimization Engine
+# ---------------------------------------------------------------------------
+@app.route("/cost/report", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def cost_report():
+    from mlProject.components.cost_optimizer import EnterpriseCostOptimizer
+    optimizer = EnterpriseCostOptimizer()
+    return jsonify(optimizer.get_cost_report())
+
+
+@app.route("/cost/forecast", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def cost_forecast():
+    from mlProject.components.cost_optimizer import EnterpriseCostOptimizer
+    optimizer = EnterpriseCostOptimizer()
+    return jsonify(optimizer.get_forecast())
+
+
+@app.route("/cost/recommendations", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def cost_recommendations():
+    from mlProject.components.cost_optimizer import EnterpriseCostOptimizer
+    optimizer = EnterpriseCostOptimizer()
+    return jsonify(optimizer.get_recommendations())
+
+
+# ---------------------------------------------------------------------------
+# Phase 27: AI Compliance Intelligence Platform
+# ---------------------------------------------------------------------------
+@app.route("/compliance/score", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def compliance_score():
+    from mlProject.components.compliance_intelligence import AIComplianceIntelligence
+    intel = AIComplianceIntelligence()
+    return jsonify(intel.get_compliance_score())
+
+
+@app.route("/compliance/report", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def compliance_report():
+    from mlProject.components.compliance_intelligence import AIComplianceIntelligence
+    intel = AIComplianceIntelligence()
+    return jsonify(intel.get_compliance_report())
+
+
+@app.route("/compliance/findings", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def compliance_findings():
+    from mlProject.components.compliance_intelligence import AIComplianceIntelligence
+    intel = AIComplianceIntelligence()
+    return jsonify(intel.get_findings())
+
+
+# ---------------------------------------------------------------------------
+# Phase 28: Synthetic Data Generation Studio
+# ---------------------------------------------------------------------------
+@app.route("/synthetic/generate", methods=["POST"])
+@require_role(["Admin"])
+def synthetic_generate():
+    from mlProject.components.synthetic_data import SyntheticDataStudio
+    data = request.json or {}
+    studio = SyntheticDataStudio()
+    result = studio.generate(
+        n_samples=int(data.get("n_samples", 100)),
+        noise_factor=float(data.get("noise_factor", 0.05)),
+        method=data.get("method", "gaussian")
+    )
+    return jsonify(result), 201
+
+
+@app.route("/synthetic/evaluate", methods=["POST"])
+@require_role(["Admin"])
+def synthetic_evaluate():
+    from mlProject.components.synthetic_data import SyntheticDataStudio
+    data = request.json or {}
+    studio = SyntheticDataStudio()
+    result = studio.evaluate(dataset_id=data.get("dataset_id"))
+    return jsonify(result)
+
+
+@app.route("/synthetic/catalog", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def synthetic_catalog():
+    from mlProject.components.synthetic_data import SyntheticDataStudio
+    studio = SyntheticDataStudio()
+    return jsonify(studio.get_catalog())
+
+
+# ---------------------------------------------------------------------------
+# Phase 29: Enterprise AI Knowledge Graph
+# ---------------------------------------------------------------------------
+@app.route("/graph/entities", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def graph_entities():
+    from mlProject.components.knowledge_graph import EnterpriseKnowledgeGraph
+    entity_type = request.args.get("type")
+    kg = EnterpriseKnowledgeGraph()
+    return jsonify(kg.get_entities(entity_type))
+
+
+@app.route("/graph/relationships", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def graph_relationships():
+    from mlProject.components.knowledge_graph import EnterpriseKnowledgeGraph
+    entity_id = request.args.get("entity_id")
+    kg = EnterpriseKnowledgeGraph()
+    return jsonify(kg.get_relationships(entity_id))
+
+
+@app.route("/graph/query", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def graph_query():
+    from mlProject.components.knowledge_graph import EnterpriseKnowledgeGraph
+    query_type = request.args.get("query_type", "summary")
+    entity_id = request.args.get("entity_id")
+    kg = EnterpriseKnowledgeGraph()
+    return jsonify(kg.query_graph(query_type, entity_id))
+
+
+# ---------------------------------------------------------------------------
+# Phase 30: Autonomous AI Command Center
+# ---------------------------------------------------------------------------
+@app.route("/command/decisions", methods=["GET"])
+@require_role(["Admin"])
+def command_decisions():
+    from mlProject.components.autonomous_command import AutonomousCommandCenter
+    center = AutonomousCommandCenter()
+    return jsonify(center.get_decisions())
+
+
+@app.route("/command/recommendations", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def command_recommendations():
+    from mlProject.components.autonomous_command import AutonomousCommandCenter
+    center = AutonomousCommandCenter()
+    return jsonify(center.get_recommendations())
+
+
+@app.route("/command/status", methods=["GET"])
+@require_role(["Admin", "Viewer"])
+def command_status():
+    from mlProject.components.autonomous_command import AutonomousCommandCenter
+    center = AutonomousCommandCenter()
+    return jsonify(center.get_command_status())
 
 
 # ---------------------------------------------------------------------------

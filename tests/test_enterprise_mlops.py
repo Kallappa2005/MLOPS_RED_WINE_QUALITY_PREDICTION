@@ -1,4 +1,8 @@
 import os
+os.environ["ADMIN_PASSWORD"] = "admin_password"
+os.environ["ENGINEER_PASSWORD"] = "engineer_password"
+os.environ["VIEWER_PASSWORD"] = "viewer_password"
+
 import json
 import pytest
 from pathlib import Path

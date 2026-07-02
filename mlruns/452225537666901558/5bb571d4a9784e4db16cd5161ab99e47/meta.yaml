@@ -1,0 +1,15 @@
+artifact_uri: file:///D:/mlops/MLOPS_RED_WINE_QUALITY_PREDICTION/mlruns/452225537666901558/5bb571d4a9784e4db16cd5161ab99e47/artifacts
+end_time: 1782028393709
+entry_point_name: ''
+experiment_id: '452225537666901558'
+lifecycle_stage: active
+run_id: 5bb571d4a9784e4db16cd5161ab99e47
+run_name: train_FinalPromoted_RandomForestRegressor
+run_uuid: 5bb571d4a9784e4db16cd5161ab99e47
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1782028387247
+status: 3
+tags: []
+user_id: bhuva
