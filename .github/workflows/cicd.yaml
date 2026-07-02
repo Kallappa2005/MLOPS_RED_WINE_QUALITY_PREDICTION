@@ -33,13 +33,18 @@ jobs:
       run: |
         dvc diff --md || echo "No DVC data drift detected"
 
+    - name: Run unit tests
     - name: Validate issue template filenames
       run: |
         python scripts/validate_templates.py
 
     - name: Run tests
       run: |
-        python -m pytest tests/ -v
+        python -m pytest tests/ -v -m "not integration"
+
+    - name: Run integration tests
+      run: |
+        python -m pytest tests/ -v -m "integration" --timeout=300
         
   deploy:
     needs: test
