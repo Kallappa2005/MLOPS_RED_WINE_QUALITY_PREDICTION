@@ -175,7 +175,6 @@ class TestModelRegistry(unittest.TestCase):
             existing_path.write_text("weights")
             (Path(str(existing_path) + ".sha256")).write_text("hash")
             (Path(tmp) / "model.joblib").write_text("weights")
-            missing_path = Path(tmp) / "model_v002.joblib"
 
             register_model(
                 registry_path=registry_path,
@@ -184,13 +183,20 @@ class TestModelRegistry(unittest.TestCase):
                 metrics={"rmse": 0.5},
                 params={"alpha": 0.1},
             )
-            register_model(
-                registry_path=registry_path,
-                model_path=missing_path,
-                version_id="v002",
-                metrics={"rmse": 0.6},
-                params={"alpha": 0.2},
-            )
+            
+            # Manually add a registry entry for a missing file to test validation
+            import json
+            with open(registry_path, 'r') as f:
+                registry = json.load(f)
+            # Use "versions" key as expected by validate_registry
+            registry["versions"].append({
+                "id": "v002",
+                "path": str(Path(tmp) / "model_v002.joblib"),
+                "metrics": {"rmse": 0.6},
+                "params": {"alpha": 0.2}
+            })
+            with open(registry_path, 'w') as f:
+                json.dump(registry, f)
 
             issues = validate_registry(registry_path)
             self.assertTrue(any("v002" in issue for issue in issues))
