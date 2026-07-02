@@ -2,6 +2,12 @@ import os
 import json
 import pytest
 from pathlib import Path
+
+# Set test credentials BEFORE importing app
+os.environ["ADMIN_PASSWORD"] = "admin_password"
+os.environ["ENGINEER_PASSWORD"] = "engineer_password"
+os.environ["VIEWER_PASSWORD"] = "viewer_password"
+
 from app import app
 from mlProject.components.security import create_token, decode_token, USER_DB
 from mlProject.components.observability import APILogger, ObservabilityCollector
