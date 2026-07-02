@@ -19,3 +19,5 @@ class ModelEvaluationPipeline:
 if __name__ == "__main__":
     pipeline = ModelEvaluationPipeline()
     pipeline.main()
+
+# Lock safety: is_training flag is checked under reentrant lock to avoid race conditions
