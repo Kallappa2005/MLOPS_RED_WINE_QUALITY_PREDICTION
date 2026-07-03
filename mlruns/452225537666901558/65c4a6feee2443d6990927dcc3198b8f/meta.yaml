@@ -1,0 +1,15 @@
+artifact_uri: file:///D:/mlops/MLOPS_RED_WINE_QUALITY_PREDICTION/mlruns/452225537666901558/65c4a6feee2443d6990927dcc3198b8f/artifacts
+end_time: 1781720487280
+entry_point_name: ''
+experiment_id: '452225537666901558'
+lifecycle_stage: active
+run_id: 65c4a6feee2443d6990927dcc3198b8f
+run_name: train_ElasticNet
+run_uuid: 65c4a6feee2443d6990927dcc3198b8f
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1781720487254
+status: 3
+tags: []
+user_id: bhuva

@@ -15,7 +15,7 @@ Preprocessing:
   use_scaler: true
   scaler_type: standard
   handle_outliers: true
-  outlier_method: iqr
+  outlier_method: iqr    # Applied BEFORE standardization — caps raw-data outliers, not scaled values
   outlier_iqr_multiplier: 1.5
   impute_missing: true
   feature_engineering_flags:

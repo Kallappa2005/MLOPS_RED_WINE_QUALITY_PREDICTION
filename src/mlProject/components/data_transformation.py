@@ -12,7 +12,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.base import BaseEstimator, TransformerMixin
 import pandas as pd
 from mlProject.entity.config_entity import DataTransformationConfig
-
+from mlProject import logger
 
 NUMERIC_FEATURES = [
     "fixed acidity", "volatile acidity", "citric acid",
@@ -43,18 +43,31 @@ class OutlierCapper(BaseEstimator, TransformerMixin):
         X_arr = np.asarray(X)
         self.lower_bounds_ = {}
         self.upper_bounds_ = {}
+        total_capped = 0
         for i in range(X_arr.shape[1]):
             col = X_arr[:, i]
             q1, q3 = np.percentile(col, [25, 75])
             iqr = q3 - q1
-            self.lower_bounds_[i] = q1 - self.iqr_multiplier * iqr
-            self.upper_bounds_[i] = q3 + self.iqr_multiplier * iqr
+            lower = q1 - self.iqr_multiplier * iqr
+            upper = q3 + self.iqr_multiplier * iqr
+            self.lower_bounds_[i] = lower
+            self.upper_bounds_[i] = upper
+            total_capped += int(np.sum((col < lower) | (col > upper)))
+        logger.info(
+            f"OutlierCapper: {total_capped}/{X_arr.size} values ({100 * total_capped / X_arr.size:.2f}%) "
+            f"will be capped using {self.method} method (multiplier={self.iqr_multiplier})"
+        )
         return self
 
     def transform(self, X):
         X_arr = np.asarray(X, dtype=float)
         for i in range(X_arr.shape[1]):
-            X_arr[:, i] = np.clip(X_arr[:, i], self.lower_bounds_.get(i, -np.inf), self.upper_bounds_.get(i, np.inf))
+            lower = self.lower_bounds_.get(i, -np.inf)
+            upper = self.upper_bounds_.get(i, np.inf)
+            capped = int(np.sum((X_arr[:, i] < lower) | (X_arr[:, i] > upper)))
+            if capped > 0:
+                logger.debug(f"Feature {i}: capped {capped} outliers")
+            X_arr[:, i] = np.clip(X_arr[:, i], lower, upper)
         return X_arr
 
 
@@ -165,12 +178,12 @@ class DataTransformation:
         numeric_steps = []
         if self.config.impute_missing:
             numeric_steps.append(("imputer", SimpleImputer(strategy="median")))
-        numeric_steps.append(("scaler", scaler))
         if self.config.handle_outliers:
             numeric_steps.append(("outlier_capper", OutlierCapper(
                 method=self.config.outlier_method,
                 iqr_multiplier=self.config.outlier_iqr_multiplier,
             )))
+        numeric_steps.append(("scaler", scaler))
 
         numeric_transformer = Pipeline(steps=numeric_steps)
 
@@ -301,4 +314,4 @@ class DataTransformation:
         if self.config.use_scaler:
             logger.info(f"Scaled train shape: {train_scaled_df.shape}, Scaled test shape: {test_scaled_df.shape}")
 
-        print(f"Train: {train.shape}, Test: {test.shape}")
+        logger.info(f"Train: {train.shape}, Test: {test.shape}")

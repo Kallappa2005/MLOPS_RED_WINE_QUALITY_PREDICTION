@@ -1,0 +1,15 @@
+artifact_uri: file:///D:/mlops/MLOPS_RED_WINE_QUALITY_PREDICTION/mlruns/452225537666901558/b699cad78f314d55938c8b3a96a6f0e2/artifacts
+end_time: 1781720488564
+entry_point_name: ''
+experiment_id: '452225537666901558'
+lifecycle_stage: active
+run_id: b699cad78f314d55938c8b3a96a6f0e2
+run_name: train_XGBoost
+run_uuid: b699cad78f314d55938c8b3a96a6f0e2
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1781720488531
+status: 3
+tags: []
+user_id: bhuva

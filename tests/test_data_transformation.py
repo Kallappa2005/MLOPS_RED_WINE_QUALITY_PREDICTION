@@ -5,6 +5,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
 
 from mlProject.components.data_transformation import DataTransformation, NUMERIC_FEATURES, FeatureEngineer, OutlierCapper
 from mlProject.entity.config_entity import DataTransformationConfig
@@ -132,8 +133,8 @@ class TestPreprocessing(unittest.TestCase):
 
     def test_build_preprocessing_pipeline_honors_feature_engineering_flags(self):
         config = DataTransformationConfig(
-            root_dir=Path("/tmp"),
-            data_path=Path("/tmp/wine.csv"),
+            root_dir=Path("artifacts"),
+            data_path=Path("artifacts/wine.csv"),
             test_size=0.25,
             random_state=42,
             stratify_column="quality",
@@ -156,8 +157,8 @@ class TestPreprocessing(unittest.TestCase):
 
     def test_build_preprocessing_pipeline_skips_outlier_capper_when_disabled(self):
         config = DataTransformationConfig(
-            root_dir=Path("/tmp"),
-            data_path=Path("/tmp/wine.csv"),
+            root_dir=Path("artifacts"),
+            data_path=Path("artifacts/wine.csv"),
             test_size=0.25,
             random_state=42,
             stratify_column="quality",
@@ -174,8 +175,8 @@ class TestPreprocessing(unittest.TestCase):
 
     def test_build_preprocessing_pipeline_skips_imputer_when_disabled(self):
         config = DataTransformationConfig(
-            root_dir=Path("/tmp"),
-            data_path=Path("/tmp/wine.csv"),
+            root_dir=Path("artifacts"),
+            data_path=Path("artifacts/wine.csv"),
             test_size=0.25,
             random_state=42,
             stratify_column="quality",
@@ -192,8 +193,8 @@ class TestPreprocessing(unittest.TestCase):
 
     def test_build_preprocessing_pipeline_uses_outlier_iqr_multiplier_from_config(self):
         config = DataTransformationConfig(
-            root_dir=Path("/tmp"),
-            data_path=Path("/tmp/wine.csv"),
+            root_dir=Path("artifacts"),
+            data_path=Path("artifacts/wine.csv"),
             test_size=0.25,
             random_state=42,
             stratify_column="quality",
@@ -209,6 +210,50 @@ class TestPreprocessing(unittest.TestCase):
         numeric = pipeline.named_steps["numeric"]
         capper = numeric.named_steps["outlier_capper"]
         self.assertEqual(capper.iqr_multiplier, 3.0)
+
+
+    def test_outlier_capper_runs_before_scaler_in_pipeline(self):
+        """Regression test: outlier capping must be applied BEFORE standardization."""
+        config = DataTransformationConfig(
+            root_dir=Path("/tmp"),
+            data_path=Path("/tmp/wine.csv"),
+            test_size=0.25,
+            random_state=42,
+            stratify_column="quality",
+            use_scaler=True,
+            scaler_type="standard",
+            handle_outliers=True,
+            outlier_method="iqr",
+            outlier_iqr_multiplier=1.5,
+            impute_missing=False,
+        )
+        dt = DataTransformation(config)
+        pipeline = dt._build_preprocessing_pipeline()
+        numeric = pipeline.named_steps["numeric"]
+        step_names = [name for name, _ in numeric.steps]
+        scaler_idx = step_names.index("scaler")
+        capper_idx = step_names.index("outlier_capper")
+        self.assertLess(
+            capper_idx, scaler_idx,
+            "OutlierCapper must appear before StandardScaler in the pipeline"
+        )
+
+    def test_outlier_capper_on_right_skewed_data_before_scaler(self):
+        """Verify capping raw data then scaling gives expected distribution."""
+        np.random.seed(42)
+        data = np.random.lognormal(mean=0, sigma=1.5, size=(1000, 1))
+
+        capper = OutlierCapper(method="iqr", iqr_multiplier=1.5)
+        scaler = StandardScaler()
+
+        capped = capper.fit_transform(data)
+        scaled = scaler.fit_transform(capped)
+
+        capped_range = scaled.max() - scaled.min()
+        self.assertGreater(
+            capped_range, 2.0,
+            "Capping before scaling should preserve a wider range than capping after scaling"
+        )
 
 
 if __name__ == "__main__":
