@@ -588,6 +588,106 @@ def experiments_runs():
     return jsonify(get_mlflow_runs())
 
 
+@app.route("/decisions/analyze", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def decisions_analyze():
+    """Analyze a decision context and return a ranked, explainable recommendation."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    data = request.json or {}
+    context = data.get("context")
+    options = data.get("options")
+
+    if not context or not options:
+        return jsonify({"error": "context and options are required"}), 400
+
+    try:
+        engine = DecisionIntelligenceEngine()
+        result = engine.analyze_decision(context, options)
+        status_code = 200 if result.get("status") == "success" else 400
+        return jsonify(result), status_code
+    except Exception as e:
+        app.logger.error(f"Failed to analyze decision: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/decisions/history", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def decisions_history():
+    """Return historical decision recommendations."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    limit = request.args.get("limit", default=100, type=int)
+    engine = DecisionIntelligenceEngine()
+    return jsonify(engine.get_decision_history(limit=limit))
+
+
+@app.route("/decisions/outcome", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def decisions_log_outcome():
+    """Log the actual outcome of a past decision, for performance tracking."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    data = request.json or {}
+    decision_id = data.get("decision_id")
+    chosen_option = data.get("chosen_option")
+    actual_outcome = data.get("actual_outcome")
+
+    if decision_id is None or not chosen_option or actual_outcome is None:
+        return jsonify({"error": "decision_id, chosen_option, and actual_outcome are required"}), 400
+
+    engine = DecisionIntelligenceEngine()
+    outcome_id = engine.log_outcome(decision_id, chosen_option, actual_outcome)
+    return jsonify({"message": "Outcome logged", "id": outcome_id})
+
+
+@app.route("/decisions/performance", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def decisions_performance():
+    """Return recommendation performance metrics based on logged outcomes."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    engine = DecisionIntelligenceEngine()
+    return jsonify(engine.get_performance_metrics())
+
+
+@app.route("/decisions/alerts", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def decisions_alerts():
+    """Return active (or all) decision intelligence alerts."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    status = request.args.get("status", default="open")
+    if status.lower() == "all":
+        status = None
+    limit = request.args.get("limit", default=100, type=int)
+    engine = DecisionIntelligenceEngine()
+    return jsonify(engine.get_alerts(status=status, limit=limit))
+
+
+@app.route("/decisions/alerts/<int:alert_id>/resolve", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def decisions_resolve_alert(alert_id):
+    """Mark a decision intelligence alert as resolved."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    engine = DecisionIntelligenceEngine()
+    resolved = engine.resolve_alert(alert_id)
+    if resolved:
+        return jsonify({"message": f"Alert {alert_id} resolved"})
+    return jsonify({"error": f"Alert {alert_id} not found or already resolved"}), 404
+
+
+@app.route("/decisions/dashboard", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def decisions_dashboard():
+    """Return summary counts for the decision intelligence dashboard widget."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    engine = DecisionIntelligenceEngine()
+    return jsonify(engine.get_dashboard_summary())
+
+
 @app.route("/benchmarking/results", methods=["GET"])
 @limiter.limit("30 per minute")
 def benchmarking_results():
