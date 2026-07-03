@@ -54,6 +54,7 @@ class ModelTrainerConfig:
     l1_ratio: float
     target_column: str
     preprocessor_path: Optional[Path] = None
+    use_scaler: bool = True
     override_root_dir: Optional[Path] = None
     override_alpha: Optional[float] = None
     override_l1_ratio: Optional[float] = None
@@ -67,6 +68,7 @@ class ModelEvaluationConfig:
     metric_file_name: Path
     target_column: str
     preprocessor_path: Optional[Path] = None
+    use_scaler: bool = True
     per_class_r2_threshold: float = -0.5
     override_root_dir: Optional[Path] = None
 
@@ -77,3 +79,8 @@ class ModelRegistryConfig:
     staging_alias: str = "staging"
     max_versions_to_keep: int = 10
     quality_gate_max_rmse_degradation_pct: float = 5.0
+    use_mlflow: bool = False
+    mlflow_tracking_uri: str = "./mlruns"
+    mlflow_experiment_name: str = "wine_quality_prediction"
+    mlflow_registry_uri: str = ""
+    mlflow_model_name: str = "WineQualityElasticNet"
