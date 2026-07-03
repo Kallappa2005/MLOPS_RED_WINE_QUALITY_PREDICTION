@@ -131,10 +131,10 @@ stages:
   model_trainer:
     cmd: python src/mlProject/pipeline/stage_04_model_trainer.py
     deps:
-    - path: artifacts/data_transformation/test.csv
+    - path: artifacts/data_transformation/preprocessor.joblib
       hash: md5
-      md5: e2c1d0b589326e300f3660a40661c34b
-      size: 23921
+      md5: a434c9cf155323aed0d2f958c7370dba
+      size: 2646
     - path: artifacts/data_transformation/train.csv
       hash: md5
       md5: 70779966cde52dd0d8873831e7371987
@@ -145,8 +145,8 @@ stages:
       size: 1008
     - path: params.yaml
       hash: md5
-      md5: 4607fbf987fdf2e49eb9747293a35307
-      size: 42
+      md5: 48a14291a564ca8f58bdb78825357c48
+      size: 578
     - path: schema.yaml
       hash: md5
       md5: 5e46b43f4005ecea7de7ae41fea7f397
@@ -179,6 +179,10 @@ stages:
   model_evaluation:
     cmd: python src/mlProject/pipeline/stage_05_model_evaluation.py
     deps:
+    - path: artifacts/data_transformation/preprocessor.joblib
+      hash: md5
+      md5: a434c9cf155323aed0d2f958c7370dba
+      size: 2646
     - path: artifacts/data_transformation/test.csv
       hash: md5
       md5: e2c1d0b589326e300f3660a40661c34b
@@ -193,8 +197,8 @@ stages:
       size: 1008
     - path: params.yaml
       hash: md5
-      md5: 4607fbf987fdf2e49eb9747293a35307
-      size: 42
+      md5: 48a14291a564ca8f58bdb78825357c48
+      size: 578
     - path: schema.yaml
       hash: md5
       md5: 5e46b43f4005ecea7de7ae41fea7f397

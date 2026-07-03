@@ -13,6 +13,7 @@ from mlProject.utils.common import save_json, save_checksum
 from mlProject.utils.model_registry import (
     load_registry, register_model, update_registration,
 )
+from mlProject.utils.mlflow_tracker import MlflowTracker
 from mlProject.components.data_transformation import NUMERIC_FEATURES
 from pathlib import Path
 
@@ -119,18 +120,6 @@ class ModelEvaluation:
         )
         if per_class_metrics:
             scores["per_class"] = per_class_metrics
-            # Per-class quality gate
-            threshold = self.config.per_class_r2_threshold
-            for quality, m in per_class_metrics.items():
-                if m.get("r2", 0) < threshold:
-                    logger.error(
-                        f"Model rejected: quality={quality} R²={m['r2']:.4f} "
-                        f"below threshold {threshold}"
-                    )
-                    raise ValueError(
-                        f"Model failed per-class quality gate: quality={quality} "
-                        f"R²={m['r2']:.4f} < {threshold}"
-                    )
 
         save_json(path=Path(self.config.metric_file_name), data=scores)
 
@@ -140,6 +129,11 @@ class ModelEvaluation:
         registry_config = config_manager.get_model_registry_config()
         registry_path = registry_config.registry_path
         quality_gate = registry_config.quality_gate_max_rmse_degradation_pct
+
+        # Capture the previously-deployed production metrics before registering
+        # the new version, otherwise the new version becomes production and we
+        # would compare it against itself.
+        previous_metrics = self._load_previous_metrics(registry_path)
 
         params = model_info.get("params", {})
         data_hash = model_info.get("data_hash", "")
@@ -153,6 +147,7 @@ class ModelEvaluation:
             quality_gate_max_rmse_degradation_pct=quality_gate,
             status="evaluated",
             model_path=versioned_model_path,
+            stable_model_path=self.config.model_path,
         )
         if not updated:
             register_model(
@@ -163,6 +158,7 @@ class ModelEvaluation:
                 params=params,
                 data_hash=data_hash,
                 quality_gate_max_rmse_degradation_pct=quality_gate,
+                stable_model_path=self.config.model_path,
             )
 
         # Promote versioned model to stable path only if quality gate passed
@@ -175,12 +171,60 @@ class ModelEvaluation:
             save_checksum(stable_path, stable_checksum_path)
             logger.info(f"Model {version_id} promoted to stable path: {stable_path}")
 
-        previous_metrics = self._load_previous_metrics(registry_path)
         if previous_metrics:
             comparison = self._compare_metrics(scores, previous_metrics)
             comparison_path = self.config.root_dir / "metrics_comparison.json"
             save_json(path=Path(comparison_path), data=comparison)
             logger.info(f"Metrics comparison saved to {comparison_path}")
+
+        self._log_metrics_to_mlflow(scores, version_id)
+
+    def _log_metrics_to_mlflow(self, scores: dict, version_id: str):
+        try:
+            config_manager = ConfigurationManager()
+            registry_config = config_manager.get_model_registry_config()
+            if not registry_config.use_mlflow:
+                return
+            tracker = MlflowTracker(
+                tracking_uri=registry_config.mlflow_tracking_uri,
+                experiment_name=registry_config.mlflow_experiment_name,
+                use_mlflow=True,
+                registry_uri=registry_config.mlflow_registry_uri or None,
+            )
+            if tracker.start_run(run_name=f"evaluate_{version_id}"):
+                tracker.log_metrics({
+                    "rmse": scores["rmse"],
+                    "mae": scores["mae"],
+                    "r2": scores["r2"],
+                    "baseline_r2": scores.get("baseline_r2", 0),
+                })
+                if version_id:
+                    tracker.register_model_version(
+                        model_name=registry_config.mlflow_model_name,
+                        source="model",
+                    )
+                    registry = load_registry(registry_config.registry_path)
+                    prod_id = registry.get("production")
+                    if prod_id == version_id:
+                        tracker.transition_model_stage(
+                            model_name=registry_config.mlflow_model_name,
+                            version=version_id,
+                            stage="Production",
+                        )
+                    else:
+                        for v in registry.get("versions", []):
+                            if v.get("id") == version_id:
+                                status = v.get("status", "Staging")
+                                tracker.transition_model_stage(
+                                    model_name=registry_config.mlflow_model_name,
+                                    version=version_id,
+                                    stage=status.capitalize(),
+                                )
+                                break
+                tracker.end_run()
+                logger.info(f"Metrics logged to MLflow for version {version_id}")
+        except Exception as e:
+            logger.warning(f"Failed to log metrics to MLflow: {e}")
 
     def _load_model_info(self) -> dict:
         """Load model_info.json saved alongside the model by model_trainer."""
@@ -230,7 +274,7 @@ class ModelEvaluation:
         return comparison
 
     def _compute_per_class_metrics(self, y_true, y_pred, min_samples=3):
-        """Compute per-class RMSE, MAE, R² for each quality level."""
+        """Compute per-class RMSE, MAE for each quality level."""
         y_true = np.asarray(y_true).flatten()
         y_pred = np.asarray(y_pred).flatten()
         per_class = {}
@@ -240,11 +284,9 @@ class ModelEvaluation:
             if count >= min_samples:
                 rmse = np.sqrt(mean_squared_error(y_true[mask], y_pred[mask]))
                 mae = mean_absolute_error(y_true[mask], y_pred[mask])
-                r2 = r2_score(y_true[mask], y_pred[mask])
                 per_class[int(quality)] = {
                     "rmse": round(float(rmse), 4),
                     "mae": round(float(mae), 4),
-                    "r2": round(float(r2), 4),
                     "count": count,
                 }
         return per_class

@@ -15,6 +15,40 @@
   box-sizing: border-box;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: 0.5rem;
+  top: -3rem;
+  z-index: 100;
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+
+.skip-link:focus {
+  top: 0.5rem;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 html {
   scroll-behavior: smooth;
 }
@@ -204,20 +238,24 @@ h3 {
   margin-bottom: 1rem;
 }
 
-.predict-form {
+.predict-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
 }
 
-.predict-form label {
+.predict-fields label {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
   font-weight: 600;
 }
 
-.predict-form input {
+.predict-fields input {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 0.7rem 0.75rem;
@@ -225,7 +263,7 @@ h3 {
   background: #fff;
 }
 
-.predict-form input:focus {
+.predict-fields input:focus {
   outline: 2px solid rgba(164, 22, 26, 0.22);
   border-color: rgba(164, 22, 26, 0.34);
 }
@@ -340,7 +378,7 @@ h3 {
 
 @media (max-width: 900px) {
   .cards,
-  .predict-form {
+  .predict-fields {
     grid-template-columns: 1fr;
   }
 
