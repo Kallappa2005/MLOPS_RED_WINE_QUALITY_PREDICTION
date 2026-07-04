@@ -34,6 +34,7 @@ import pandas as pd
 from flask import Flask, abort, jsonify, render_template, request, Response, g
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_talisman import Talisman
 from pathlib import Path
 from mlProject.config.configuration import ConfigurationManager
 from mlProject.constants import ENV_FLASK_PORT, ENV_FLASK_DEBUG, ENV_TAG
@@ -66,6 +67,8 @@ def _get_registry_path() -> Path:
 load_env_file()
 
 app = Flask(__name__)
+# Initialize Flask-Talisman for secure HTTP headers (CSP disabled to allow inline styles/scripts temporarily)
+Talisman(app, content_security_policy=None)
 
 # Request logging middleware for API Gateway Request Analytics
 @app.before_request
@@ -303,15 +306,15 @@ def validate_config_at_startup() -> None:
 def _run_training_in_background() -> None:
     """Subprocess-based training; releases _training_lock when done."""
     global is_training, _training_process
-        if not _acquire_training_file_lock():
-            is_training = False
-            with _log_lock:
-                training_log.append("Training rejected: another process is already training")
-            try:
-                _training_lock.release()
-            except RuntimeError:
-                pass
-            return
+    if not _acquire_training_file_lock():
+        is_training = False
+        with _log_lock:
+            training_log.append("Training rejected: another process is already training")
+        try:
+            _training_lock.release()
+        except RuntimeError:
+            pass
+        return
     start_time = time.time()
     _write_training_state(True, ["Training started..."], started_at=start_time)
     try:
