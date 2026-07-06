@@ -52,7 +52,7 @@ class PredictionLogger:
             return pd.DataFrame()
         try:
             conn = sqlite3.connect(self.db_path)
-            df = pd.read_sql_query(f"SELECT * FROM predictions ORDER BY timestamp DESC LIMIT {limit}", conn)
+            df = pd.read_sql_query("SELECT * FROM predictions ORDER BY timestamp DESC LIMIT ?", conn, params=(int(limit),))
             conn.close()
             rename_dict = {col.replace(' ', '_'): col for col in NUMERIC_FEATURES}
             df = df.rename(columns=rename_dict)
