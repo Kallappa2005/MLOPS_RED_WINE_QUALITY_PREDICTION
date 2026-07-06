@@ -1031,6 +1031,131 @@ def archive_model():
     return jsonify({"error": f"Version {version_id} not found in registry"}), 404
 
 
+@app.route("/twins", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def create_twin():
+    """Create a digital twin from a registered model version (defaults to production)."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
+    data = request.json or {}
+    name = data.get("name")
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    try:
+        twin = DigitalTwin().create_twin(name, source_version_id=data.get("source_version_id"))
+        return jsonify(twin), 201
+    except DigitalTwinError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"Failed to create digital twin: {e}")
+        return jsonify({"error": "Failed to create digital twin"}), 500
+
+
+@app.route("/twins", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def list_twins():
+    """List all digital twins."""
+    from mlProject.components.digital_twin import DigitalTwin
+    return jsonify(DigitalTwin().list_twins())
+
+
+@app.route("/twins/<twin_id>", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def get_twin(twin_id):
+    """Fetch a single digital twin's metadata."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
+    try:
+        return jsonify(DigitalTwin().get_twin(twin_id))
+    except DigitalTwinError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@app.route("/twins/<twin_id>", methods=["DELETE"])
+@require_role(["Admin"])
+def delete_twin(twin_id):
+    """Delete a digital twin and its stored model artifact."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
+    try:
+        DigitalTwin().delete_twin(twin_id)
+        return jsonify({"message": f"Twin {twin_id} deleted"})
+    except DigitalTwinError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@app.route("/twins/<twin_id>/sync", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def sync_twin(twin_id):
+    """Re-sync a twin's model + metrics snapshot to the current production version."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
+    try:
+        return jsonify(DigitalTwin().sync_state(twin_id))
+    except DigitalTwinError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"Failed to sync twin {twin_id}: {e}")
+        return jsonify({"error": "Failed to sync twin"}), 500
+
+
+@app.route("/twins/<twin_id>/simulate", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def simulate_twin(twin_id):
+    """Run a what-if scenario against the twin's frozen model — never touches production."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
+    data = request.json or {}
+    scenario_name = data.get("scenario_name", "unnamed_scenario")
+    input_rows = data.get("input_rows")
+    if not input_rows or not isinstance(input_rows, list):
+        return jsonify({"error": "input_rows must be a non-empty list of feature dicts"}), 400
+    try:
+        result = DigitalTwin().run_simulation(twin_id, scenario_name, input_rows)
+        return jsonify(result)
+    except DigitalTwinError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"Simulation failed for twin {twin_id}: {e}")
+        return jsonify({"error": "Simulation failed"}), 500
+
+
+@app.route("/twins/<twin_id>/simulations", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def twin_simulation_history(twin_id):
+    """Fetch a twin's past simulation runs."""
+    from mlProject.components.digital_twin import DigitalTwin
+    limit = request.args.get("limit", default=50, type=int)
+    return jsonify(DigitalTwin().get_simulation_history(twin_id, limit=limit))
+
+
+@app.route("/twins/<twin_id>/test-change", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def test_twin_change(twin_id):
+    """Compare a candidate model artifact against the twin's baseline before promotion."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
+    data = request.json or {}
+    candidate_model_path = data.get("candidate_model_path")
+    test_rows = data.get("test_rows")
+    if not candidate_model_path or not test_rows:
+        return jsonify({"error": "candidate_model_path and test_rows are required"}), 400
+    try:
+        result = DigitalTwin().test_change(twin_id, candidate_model_path, test_rows)
+        return jsonify(result)
+    except DigitalTwinError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"Change test failed for twin {twin_id}: {e}")
+        return jsonify({"error": "Change test failed"}), 500
+
+
+@app.route("/twins/<twin_id>/drift", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def twin_drift(twin_id):
+    """Check whether a twin has fallen out of sync with the current production version."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
+    try:
+        return jsonify(DigitalTwin().detect_twin_drift(twin_id))
+    except DigitalTwinError as e:
+        return jsonify({"error": str(e)}), 404
+
+
 @app.route("/observability/health", methods=["GET"])
 @require_role(["Admin", "Engineer", "Viewer"])
 def observability_health():
