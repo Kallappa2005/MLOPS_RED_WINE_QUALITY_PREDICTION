@@ -16,11 +16,17 @@
     <div class="page-bg" aria-hidden="true"></div>
     <header class="topbar">
         <a href="/" class="brand">Red Wine IQ</a>
-        <nav class="menu" aria-label="Primary">
-            <a href="#about">About</a>
+        <button class="hamburger" aria-label="Toggle navigation" aria-expanded="false" aria-controls="main-nav" type="button">
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+        </button>
+        <nav class="menu" id="main-nav" aria-label="Primary">
+            <a href="#about" aria-current="page">About</a>
             <a href="#demo">Take Demo</a>
             <a href="#batch-demo">Batch Prediction</a>
         </nav>
+        <div class="nav-overlay" aria-hidden="true"></div>
     </header>
 
     <main>
