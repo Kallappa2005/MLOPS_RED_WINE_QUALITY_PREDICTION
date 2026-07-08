@@ -1,0 +1,13 @@
+Title: [FEATURE] - Automated Hyperparameter Tuning with Optuna
+
+### Is your feature request related to a problem?
+I'm frustrated when model performance plateaus because hyperparameters (`alpha` and `l1_ratio` in `params.yaml`) are statically defined and require manual trial-and-error to optimize. 
+
+### Describe the Solution You'd Like
+I would like to integrate an automated hyperparameter tuning stage using a framework like Optuna before the final `model_trainer` step. The pipeline should search a defined parameter space, find the optimal `alpha` and `l1_ratio` that minimize RMSE, automatically update `params.yaml` (or pass the best params forward), and log the tuning trials into our newly integrated MLflow tracking server.
+
+### Describe Alternatives You've Considered
+Currently, developers have to manually change `params.yaml`, run `dvc repro`, and compare MLflow runs. We could write a basic nested `for` loop with `GridSearchCV` inside `model_trainer.py`, but a dedicated tuning stage is cleaner and scales better.
+
+### Additional Context
+This would require creating a new DVC pipeline stage (`stage_04_hyperparameter_tuning.py`), updating the `dvc.yaml` to include this step before training, and adding tuning search spaces to `config.yaml`.

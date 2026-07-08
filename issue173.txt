@@ -1,0 +1,13 @@
+Title: [FEATURE] - Automated Data Drift Reports using Evidently AI
+
+### Is your feature request related to a problem?
+I'm concerned that the training pipeline might silently accept new ingested data that has fundamentally shifted in distribution compared to our original reference dataset, leading to degraded model performance in production.
+
+### Describe the Solution You'd Like
+I want to enhance the `data_validation` stage by integrating `Evidently AI` to generate comprehensive HTML drift reports. If the distribution of critical features (like `pH` or `sulphates`) drifts beyond the threshold defined in `config.yaml`, the DVC pipeline should halt and save an interactive `drift_report.html` into the artifacts folder for developers to review.
+
+### Describe Alternatives You've Considered
+We currently have a basic validation check (`status.txt`), but it only verifies column presence and basic types. Alternatively, we could write custom statistical tests (like Kolmogorov-Smirnov) from scratch in pandas, but `Evidently` provides much richer visualizations out of the box.
+
+### Additional Context
+The `drift_report.html` could be served through a new Flask route (e.g., `/reports/drift`) so admins can easily monitor data health directly from the web interface without having to download artifacts manually.

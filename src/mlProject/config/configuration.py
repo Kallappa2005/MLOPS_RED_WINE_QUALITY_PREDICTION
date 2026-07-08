@@ -6,6 +6,7 @@ from mlProject.utils.common import read_yaml, create_directories, get_env_or_con
 from mlProject.entity.config_entity import (DataIngestionConfig,
                                             DataValidationConfig,
                                             DataTransformationConfig,
+                                            HyperparameterTuningConfig,
                                             ModelTrainerConfig,
                                             ModelEvaluationConfig,
                                             ModelRegistryConfig)
@@ -123,6 +124,39 @@ class ConfigurationManager:
 
         return data_transformation_config
     
+    def get_hyperparameter_tuning_config(self) -> HyperparameterTuningConfig:
+        config = self.config.hyperparameter_tuning
+        schema = self.schema.TARGET_COLUMN
+        tuning_params = self.params.get("HyperparameterTuning", {})
+        self._validate_config_keys(config, ["root_dir"], "hyperparameter_tuning")
+
+        root_dir = get_env_or_config("ENV_HYPERPARAMETER_TUNING_ROOT_DIR", config.root_dir)
+        create_directories([root_dir])
+
+        preprocessor_path = self.config.data_transformation.get("preprocessor_path")
+        if preprocessor_path is None:
+            preprocessor_path = str(Path(self.config.data_transformation.root_dir) / "preprocessor.joblib")
+
+        n_trials = int(tuning_params.get("n_trials", config.get("n_trials", 20)))
+        alpha_min = float(tuning_params.get("alpha_min", 0.001))
+        alpha_max = float(tuning_params.get("alpha_max", 2.0))
+        l1_ratio_min = float(tuning_params.get("l1_ratio_min", 0.0))
+        l1_ratio_max = float(tuning_params.get("l1_ratio_max", 1.0))
+
+        return HyperparameterTuningConfig(
+            root_dir=Path(root_dir),
+            train_data_path=Path(self.config.model_trainer.train_data_path),
+            test_data_path=Path(self.config.model_trainer.test_data_path),
+            target_column=schema.name,
+            preprocessor_path=Path(preprocessor_path),
+            use_scaler=self.params.Preprocessing.use_scaler,
+            n_trials=n_trials,
+            alpha_min=alpha_min,
+            alpha_max=alpha_max,
+            l1_ratio_min=l1_ratio_min,
+            l1_ratio_max=l1_ratio_max,
+        )
+
     def get_model_trainer_config(self) -> ModelTrainerConfig:
         config = self.config.model_trainer
         params = self.params.ElasticNet
@@ -136,13 +170,31 @@ class ConfigurationManager:
         if preprocessor_path is None:
             preprocessor_path = str(Path(self.config.data_transformation.root_dir) / "preprocessor.joblib")
 
+        alpha = float(get_env_or_config("ENV_ELASTICNET_ALPHA", params.alpha, transform=float))
+        l1_ratio = float(get_env_or_config("ENV_ELASTICNET_L1_RATIO", params.l1_ratio, transform=float))
+
+        # Override with tuned params if they exist
+        tuned_params_path = Path("artifacts/hyperparameter_tuning/best_params.json")
+        if tuned_params_path.exists():
+            try:
+                import json
+                with open(tuned_params_path, "r") as f:
+                    best_params = json.load(f)
+                if "alpha" in best_params:
+                    alpha = float(best_params["alpha"])
+                if "l1_ratio" in best_params:
+                    l1_ratio = float(best_params["l1_ratio"])
+                logger.info(f"Loaded tuned parameters from {tuned_params_path}: alpha={alpha}, l1_ratio={l1_ratio}")
+            except Exception as e:
+                logger.warning(f"Failed to load tuned parameters: {e}")
+
         model_trainer_config = ModelTrainerConfig(
             root_dir=Path(root_dir),
             train_data_path=Path(get_env_or_config(ENV_MODEL_TRAINER_TRAIN_DATA_PATH, config.train_data_path)),
             test_data_path=Path(get_env_or_config(ENV_MODEL_TRAINER_TEST_DATA_PATH, config.test_data_path)),
             model_name=get_env_or_config(ENV_MODEL_TRAINER_MODEL_NAME, config.model_name),
-            alpha=float(get_env_or_config("ENV_ELASTICNET_ALPHA", params.alpha, transform=float)),
-            l1_ratio=float(get_env_or_config("ENV_ELASTICNET_L1_RATIO", params.l1_ratio, transform=float)),
+            alpha=alpha,
+            l1_ratio=l1_ratio,
             target_column=schema.name,
             preprocessor_path=Path(preprocessor_path),
             use_scaler=self.params.get("Preprocessing", {}).get("use_scaler", True),
