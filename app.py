@@ -535,10 +535,43 @@ def explain_local():
             data = request.form.to_dict()
         inputs = {}
         for feature in NUMERIC_FEATURES:
-            val = data.get(feature) or data.get(feature.replace(" ", "_"))
+            # Use an explicit None check so that legitimate zero/non-negative
+            # values (e.g. citric acid: 0, chlorides: 0) are accepted
+            # instead of being dropped by truthiness of `or`.
+            val = data.get(feature)
+            if val is None:
+                val = data.get(feature.replace(" ", "_"))
             if val is None:
                 return jsonify({"error": f"Missing required feature: {feature}"}), 400
-            inputs[feature] = float(val)
+            try:
+                val = float(val)
+            except (TypeError, ValueError):
+                return jsonify({"error": f"Invalid value for feature: {feature}"}), 400
+            # Range validation must match the /predict contract so the two
+            # endpoints accept/reject identical inputs.
+            if feature == "fixed acidity" and val <= 0:
+                return jsonify({"error": "Fixed Acidity must be positive."}), 400
+            if feature == "volatile acidity" and val <= 0:
+                return jsonify({"error": "Volatile Acidity must be positive."}), 400
+            if feature == "citric acid" and val < 0:
+                return jsonify({"error": "Citric Acid must be non-negative."}), 400
+            if feature == "residual sugar" and val <= 0:
+                return jsonify({"error": "Residual Sugar must be positive."}), 400
+            if feature == "chlorides" and val < 0:
+                return jsonify({"error": "Chlorides must be non-negative."}), 400
+            if feature == "free sulfur dioxide" and val < 0:
+                return jsonify({"error": "Free Sulfur Dioxide must be non-negative."}), 400
+            if feature == "total sulfur dioxide" and val < 0:
+                return jsonify({"error": "Total Sulfur Dioxide must be non-negative."}), 400
+            if feature == "density" and val <= 0:
+                return jsonify({"error": "Density must be positive."}), 400
+            if feature == "pH" and not (0 < val < 14):
+                return jsonify({"error": "pH must be between 0 and 14."}), 400
+            if feature == "sulphates" and val < 0:
+                return jsonify({"error": "Sulphates must be non-negative."}), 400
+            if feature == "alcohol" and val <= 0:
+                return jsonify({"error": "Alcohol must be positive."}), 400
+            inputs[feature] = val
         if explainer is None:
             if pipeline.unified_pipeline is None:
                 pipeline.predict(np.zeros((1, len(NUMERIC_FEATURES))))
