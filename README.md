@@ -23,7 +23,7 @@ This repository now also includes **DVC (Data Version Control)** setup so the da
 - [🚀 Quick Start](#-quick-start)
 - [📁 Project Structure](#-project-structure)
 - [🎮 Usage Examples](#-usage-examples)
-- [#-usage-examples](#-development)
+- [🔧 Development](#-development)
 - [📈 Performance Metrics](#-performance-metrics)
 - [🤝 Contributing](#-contributing)
 - [📜 License](#-license)
