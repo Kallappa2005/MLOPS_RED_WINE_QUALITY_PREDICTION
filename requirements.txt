@@ -29,3 +29,5 @@ pytest
 anyio
 Faker
 hydra-core
+coverage>=7.5.0
+pytest-cov
