@@ -47,6 +47,7 @@ import joblib
 
 # Enterprise MLOps components
 from mlProject.components.security import create_token, decode_token, require_role, AuditLogger, USER_DB
+from werkzeug.security import check_password_hash
 from mlProject.components.retraining import RetrainingEngine
 from mlProject.components.observability import APILogger, ObservabilityCollector
 
@@ -883,7 +884,7 @@ def auth_login():
         return jsonify({"error": "Username and password are required"}), 400
         
     user = USER_DB.get(username)
-    if not user or user["password"] != password:
+    if not user or not check_password_hash(user.get("password_hash", ""), password):
         AuditLogger().log_action(username, "login", "FAILED", request.remote_addr, "Invalid password or user")
         return jsonify({"error": "Invalid username or password"}), 401
         

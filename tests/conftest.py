@@ -9,3 +9,9 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
+
+# Set predictable environment variables for tests before app/security is imported
+os.environ["ADMIN_PASSWORD"] = "admin_password"
+os.environ["ENGINEER_PASSWORD"] = "engineer_password"
+os.environ["VIEWER_PASSWORD"] = "viewer_password"
+os.environ["JWT_SECRET"] = "test_secret_key"
