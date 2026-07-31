@@ -47,6 +47,7 @@ import joblib
 
 # Enterprise MLOps components
 from mlProject.components.security import create_token, decode_token, require_role, AuditLogger, USER_DB
+from werkzeug.security import check_password_hash
 from mlProject.components.retraining import RetrainingEngine
 from mlProject.components.observability import APILogger, ObservabilityCollector
 
@@ -292,9 +293,9 @@ def validate_config_at_startup() -> None:
         if not Path(path).exists():
             missing.append(f"{desc} ({path})")
     if missing:
-        logger.error(f"ERROR: Missing required configuration files: {', '.join(missing)}")
+        print(f"ERROR: Missing required configuration files: {', '.join(missing)}")
         sys.exit(1)
-    logger.info(f"Configuration validation passed. Environment: {os.environ.get(ENV_TAG, 'development')}")
+    print(f"Configuration validation passed. Environment: {os.environ.get(ENV_TAG, 'development')}")
 
 
 # ---------------------------------------------------------------------------
@@ -303,15 +304,15 @@ def validate_config_at_startup() -> None:
 def _run_training_in_background() -> None:
     """Subprocess-based training; releases _training_lock when done."""
     global is_training, _training_process
-        if not _acquire_training_file_lock():
-            is_training = False
-            with _log_lock:
-                training_log.append("Training rejected: another process is already training")
-            try:
-                _training_lock.release()
-            except RuntimeError:
-                pass
-            return
+    if not _acquire_training_file_lock():
+        is_training = False
+        with _log_lock:
+            training_log.append("Training rejected: another process is already training")
+        try:
+            _training_lock.release()
+        except RuntimeError:
+            pass
+        return
     start_time = time.time()
     _write_training_state(True, ["Training started..."], started_at=start_time)
     try:
@@ -371,9 +372,9 @@ def ensure_model_trained() -> None:
 
     if not model_path.exists():
         if not _acquire_training_file_lock():
-            logger.info("Auto-training skipped: another process is already training")
+            print("Auto-training skipped: another process is already training")
             return
-        logger.info("Model not found - starting automatic training...")
+        print("Model not found - starting automatic training...")
         try:
             train_timeout = int(os.environ.get("TRAIN_TIMEOUT", "1800"))
             result = subprocess.run(
@@ -383,11 +384,11 @@ def ensure_model_trained() -> None:
                 timeout=train_timeout,
             )
             if result.returncode == 0:
-                logger.info("Auto-training completed!")
+                print("Auto-training completed!")
             else:
-                logger.error(f"Auto-training failed:\n{result.stderr}")
+                print(f"Auto-training failed:\n{result.stderr}")
         except Exception as exc:
-            logger.error(f"Auto-training failed: {exc}")
+            print(f"Auto-training failed: {exc}")
         finally:
             _release_training_file_lock()
     else:
@@ -395,9 +396,9 @@ def ensure_model_trained() -> None:
         from mlProject.utils.model_registry import load_registry
         checksum_path = Path(str(model_path) + ".sha256")
         if not verify_model_integrity(model_path, checksum_path):
-            logger.warning("Model integrity check FAILED - consider retraining.")
+            print("Model integrity check FAILED - consider retraining.")
         else:
-            logger.info("Model already exists - ready for predictions!")
+            print("Model already exists - ready for predictions!")
         # Check if active model matches registry production version
         try:
             registry_path = _get_registry_path()
@@ -409,7 +410,7 @@ def ensure_model_trained() -> None:
                     model_info = json.load(f)
                 loaded_version = model_info.get("version_id")
                 if loaded_version and loaded_version != prod_id:
-                    logger.warning(
+                    print(
                         f"WARNING: Active model version {loaded_version} does not match "
                         f"registry production version {prod_id}."
                     )
@@ -710,32 +711,29 @@ def index():
             predict = pipeline.predict(data)
             final_prediction = round(float(predict[0]), 2)
 
-            # Log prediction to local SQLite database for monitoring & drift
+            plot_url = None
             try:
-                from mlProject.components.monitoring import PredictionLogger
-                features_dict = {
-                    "fixed acidity": fixed_acidity,
-                    "volatile acidity": volatile_acidity,
-                    "citric acid": citric_acid,
-                    "residual sugar": residual_sugar,
-                    "chlorides": chlorides,
-                    "free sulfur dioxide": free_sulfur_dioxide,
-                    "total sulfur dioxide": total_sulfur_dioxide,
-                    "density": density,
-                    "pH": pH,
-                    "sulphates": sulphates,
-                    "alcohol": alcohol
-                }
-                PredictionLogger().log_prediction(features_dict, final_prediction)
-                # Automatically check for drift and run retraining if drift ratio >= 20%
-                try:
-                    RetrainingEngine().check_and_trigger_on_drift()
-                except Exception as drift_err:
-                    logger.error(f"Failed to run automated drift check: {drift_err}")
-            except Exception as exc_log:
-                logger.error(f"Prediction logging failed: {exc_log}")
+                import shap
+                import matplotlib
+                matplotlib.use('Agg')
+                import matplotlib.pyplot as plt
+                import base64
+                import io
 
-            return render_template("results.html", prediction=final_prediction)
+                shap_values = pipeline.explain(data)
+                if shap_values is not None:
+                    plt.clf()
+                    # waterfall plot requires a single Explanation object
+                    shap.plots.waterfall(shap_values[0], show=False)
+                    buf = io.BytesIO()
+                    plt.savefig(buf, format="png", bbox_inches='tight', dpi=150)
+                    buf.seek(0)
+                    plot_url = base64.b64encode(buf.getvalue()).decode("utf-8")
+                    plt.close()
+            except Exception as e:
+                logger.error(f"Failed to generate SHAP plot: {e}")
+
+            return render_template("results.html", prediction=final_prediction, plot_url=plot_url)
 
         except ValueError as exc:
             logger.error(f"Validation error in /predict: {exc}")
@@ -921,7 +919,7 @@ def auth_login():
         return jsonify({"error": "Username and password are required"}), 400
         
     user = USER_DB.get(username)
-    if not user or user["password"] != password:
+    if not user or not check_password_hash(user.get("password_hash", ""), password):
         AuditLogger().log_action(username, "login", "FAILED", request.remote_addr, "Invalid password or user")
         return jsonify({"error": "Invalid username or password"}), 401
         
@@ -1052,11 +1050,11 @@ def api_analytics():
 # ---------------------------------------------------------------------------
 def _shutdown_handler(signum, frame):
     """Clean up training subprocess on shutdown signals."""
-    logger.info(f"Received signal {signum}, shutting down...")
+    print(f"Received signal {signum}, shutting down...")
     global _training_process
     with _training_process_lock:
         if _training_process is not None:
-            logger.info("Terminating training subprocess...")
+            print("Terminating training subprocess...")
             _training_process.terminate()
     sys.exit(0)
 
