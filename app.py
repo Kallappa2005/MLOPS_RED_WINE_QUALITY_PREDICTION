@@ -619,6 +619,107 @@ def monitoring_history():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/ethics/check", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def ethics_check():
+    """Run a bias detection check across a protected attribute for a batch of records."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    data = request.json or {}
+    records = data.get("records")
+    protected_attribute = data.get("protected_attribute")
+    threshold = data.get("threshold", 0.1)
+
+    if not records or not protected_attribute:
+        return jsonify({"error": "records and protected_attribute are required"}), 400
+
+    try:
+        monitor = EthicalAIMonitor()
+        report = monitor.detect_bias(records, protected_attribute, threshold=threshold)
+        return jsonify(report)
+    except Exception as e:
+        app.logger.error(f"Failed to run ethics check: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/ethics/bias/history", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def ethics_bias_history():
+    """Return historical bias check results."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    limit = request.args.get("limit", default=100, type=int)
+    monitor = EthicalAIMonitor()
+    return jsonify(monitor.get_bias_history(limit=limit))
+
+
+@app.route("/ethics/violations", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def ethics_violations():
+    """Return logged compliance violations."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    limit = request.args.get("limit", default=100, type=int)
+    monitor = EthicalAIMonitor()
+    return jsonify(monitor.get_compliance_report(limit=limit))
+
+
+@app.route("/ethics/violations", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def ethics_log_violation():
+    """Manually log a compliance violation."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    data = request.json or {}
+    violation_type = data.get("violation_type")
+    severity = data.get("severity")
+    description = data.get("description", "")
+
+    if not violation_type or not severity:
+        return jsonify({"error": "violation_type and severity are required"}), 400
+
+    monitor = EthicalAIMonitor()
+    violation_id = monitor.log_violation(violation_type, severity, description)
+    return jsonify({"message": "Violation logged", "id": violation_id})
+
+
+@app.route("/ethics/alerts", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def ethics_alerts():
+    """Return active (or all) ethics monitoring alerts."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    status = request.args.get("status", default="open")
+    if status.lower() == "all":
+        status = None
+    limit = request.args.get("limit", default=100, type=int)
+    monitor = EthicalAIMonitor()
+    return jsonify(monitor.get_alerts(status=status, limit=limit))
+
+
+@app.route("/ethics/alerts/<int:alert_id>/resolve", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def ethics_resolve_alert(alert_id):
+    """Mark an ethics alert as resolved."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    monitor = EthicalAIMonitor()
+    resolved = monitor.resolve_alert(alert_id)
+    if resolved:
+        return jsonify({"message": f"Alert {alert_id} resolved"})
+    return jsonify({"error": f"Alert {alert_id} not found or already resolved"}), 404
+
+
+@app.route("/ethics/dashboard", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def ethics_dashboard():
+    """Return summary counts for the ethical AI monitoring dashboard widget."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    monitor = EthicalAIMonitor()
+    return jsonify(monitor.get_dashboard_summary())
+
+
 @app.route("/experiments/runs", methods=["GET"])
 @limiter.limit("30 per minute")
 def experiments_runs():
