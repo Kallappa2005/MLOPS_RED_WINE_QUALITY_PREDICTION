@@ -586,7 +586,11 @@ def monitoring_history():
 def experiments_runs():
     """Return all experiments run from MLflow."""
     from mlProject.components.experiment_tracker import get_mlflow_runs
-    return jsonify(get_mlflow_runs())
+    try:
+        return jsonify(get_mlflow_runs())
+    except Exception as e:
+        app.logger.error(f"Failed to fetch experiments runs: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/benchmarking/results", methods=["GET"])
@@ -616,7 +620,11 @@ def benchmarking_results():
 def analytics_summary():
     """Return prediction summary statistics and trend data."""
     from mlProject.components.analytics import get_analytics_summary
-    return jsonify(get_analytics_summary())
+    try:
+        return jsonify(get_analytics_summary())
+    except Exception as e:
+        app.logger.error(f"Failed to fetch analytics summary: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/analytics/export/csv", methods=["GET"])
@@ -934,8 +942,12 @@ def auth_login():
 def get_audit_logs():
     """Retrieve security audit logs."""
     limit = request.args.get("limit", default=100, type=int)
-    logs = AuditLogger().get_logs(limit=limit)
-    return jsonify(logs)
+    try:
+        logs = AuditLogger().get_logs(limit=limit)
+        return jsonify(logs)
+    except Exception as e:
+        app.logger.error(f"Failed to fetch audit logs: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/retrain/trigger", methods=["POST"])
@@ -1033,16 +1045,24 @@ def archive_model():
 @require_role(["Admin", "Engineer", "Viewer"])
 def observability_health():
     """Retrieve system health and active alerts."""
-    collector = ObservabilityCollector()
-    return jsonify(collector.get_system_health())
+    try:
+        collector = ObservabilityCollector()
+        return jsonify(collector.get_system_health())
+    except Exception as e:
+        app.logger.error(f"Failed to fetch system health: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/analytics", methods=["GET"])
 @require_role(["Admin", "Engineer", "Viewer"])
 def api_analytics():
     """Retrieve API latency, status codes, and request analytics."""
-    logger = APILogger()
-    return jsonify(logger.get_analytics(hours=24))
+    try:
+        logger = APILogger()
+        return jsonify(logger.get_analytics(hours=24))
+    except Exception as e:
+        app.logger.error(f"Failed to fetch API analytics: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # ---------------------------------------------------------------------------
