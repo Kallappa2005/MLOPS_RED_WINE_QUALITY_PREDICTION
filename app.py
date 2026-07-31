@@ -1079,6 +1079,143 @@ def archive_model():
     return jsonify({"error": f"Version {version_id} not found in registry"}), 404
 
 
+@app.route("/fleet/nodes", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def register_fleet_node():
+    """Register a model version as a node in the autonomous command grid."""
+    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid, CommandGridError
+    data = request.json or {}
+    name = data.get("name")
+    target_ref = data.get("target_ref")
+    if not name or not target_ref:
+        return jsonify({"error": "name and target_ref are required"}), 400
+    try:
+        node = AutonomousCommandGrid().register_node(name, target_ref, node_type=data.get("node_type", "model_version"))
+        return jsonify(node), 201
+    except CommandGridError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"Failed to register fleet node: {e}")
+        return jsonify({"error": "Failed to register fleet node"}), 500
+
+
+@app.route("/fleet/nodes", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def list_fleet_nodes():
+    """List all nodes tracked by the command grid."""
+    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid
+    return jsonify(AutonomousCommandGrid().list_nodes())
+
+
+@app.route("/fleet/nodes/<int:node_id>", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def get_fleet_node(node_id):
+    """Fetch a single fleet node."""
+    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid, CommandGridError
+    try:
+        return jsonify(AutonomousCommandGrid().get_node(node_id))
+    except CommandGridError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@app.route("/fleet/nodes/<int:node_id>", methods=["DELETE"])
+@require_role(["Admin"])
+def deregister_fleet_node(node_id):
+    """Remove a node from the fleet."""
+    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid, CommandGridError
+    try:
+        AutonomousCommandGrid().deregister_node(node_id)
+        return jsonify({"message": f"Node {node_id} deregistered"})
+    except CommandGridError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@app.route("/fleet/command", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def execute_fleet_command():
+    """Dispatch a command (promote/demote/archive/retrain/health_check) across one or more fleet nodes."""
+    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid, CommandGridError
+    data = request.json or {}
+    node_ids = data.get("node_ids")
+    command = data.get("command")
+    params = data.get("params", {})
+    if not node_ids or not isinstance(node_ids, list) or not command:
+        return jsonify({"error": "node_ids (list) and command are required"}), 400
+    try:
+        results = AutonomousCommandGrid().execute_command(node_ids, command, params)
+        return jsonify(results)
+    except CommandGridError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"Fleet command '{command}' failed: {e}")
+        return jsonify({"error": "Fleet command execution failed"}), 500
+
+
+@app.route("/fleet/command/history", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def fleet_command_history():
+    """Fetch past command executions, optionally filtered by node."""
+    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid
+    node_id = request.args.get("node_id", type=int)
+    limit = request.args.get("limit", default=100, type=int)
+    return jsonify(AutonomousCommandGrid().get_command_history(node_id=node_id, limit=limit))
+
+
+@app.route("/fleet/health", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def fleet_health():
+    """Real-time fleet-wide health: shared system health plus per-node status."""
+    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid
+    return jsonify(AutonomousCommandGrid().get_fleet_health())
+
+
+@app.route("/fleet/incidents", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def report_fleet_incident():
+    """Report an incident affecting one or more fleet nodes. Critical incidents auto-trigger retraining."""
+    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid, CommandGridError
+    data = request.json or {}
+    title = data.get("title")
+    severity = data.get("severity")
+    affected_node_ids = data.get("affected_node_ids", [])
+    if not title or not severity:
+        return jsonify({"error": "title and severity are required"}), 400
+    try:
+        incident = AutonomousCommandGrid().report_incident(title, severity, affected_node_ids, data.get("description", ""))
+        return jsonify(incident), 201
+    except CommandGridError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/fleet/incidents", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def list_fleet_incidents():
+    """List incidents, optionally filtered by status (open/resolved)."""
+    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid
+    return jsonify(AutonomousCommandGrid().list_incidents(status=request.args.get("status")))
+
+
+@app.route("/fleet/incidents/<int:incident_id>/resolve", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def resolve_fleet_incident(incident_id):
+    """Mark an incident resolved."""
+    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid, CommandGridError
+    data = request.json or {}
+    try:
+        return jsonify(AutonomousCommandGrid().resolve_incident(incident_id, data.get("resolution_notes", "")))
+    except CommandGridError as e:
+        return jsonify({"error": str(e)}), 404
+
+
+@app.route("/fleet/optimize", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def fleet_optimize_allocation():
+    """Rank registered model versions and recommend which one should serve production traffic."""
+    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid
+    return jsonify(AutonomousCommandGrid().optimize_allocation())
+
+
 @app.route("/observability/health", methods=["GET"])
 @require_role(["Admin", "Engineer", "Viewer"])
 def observability_health():
