@@ -217,13 +217,17 @@ def _verify_train_token() -> bool:
     """
     expected = os.environ.get("TRAIN_SECRET", "")
     if not expected:
+        app.logger.warning("TRAIN_SECRET not set - /train endpoint disabled")
         return False  # No secret configured - refuse everything
 
     supplied = (
         request.args.get("token", "")
         or request.headers.get("X-Train-Token", "")
     )
-    return secrets.compare_digest(supplied.encode(), expected.encode())
+    result = secrets.compare_digest(supplied.encode(), expected.encode())
+    if not result:
+        app.logger.warning(f"Unauthorized /train access attempt from {request.remote_addr}")
+    return result
 
 
 def get_current_production_version(registry_path):
