@@ -410,7 +410,11 @@ def rollback_to_version(registry_path: Path, version_id: str) -> bool:
                         f"model file not found at {versioned_path}"
                     )
                     return False
-                stable_path = versioned_path.parent / "model.joblib"
+                # Restore to the canonical production stable path used everywhere
+                # else (register_model / promote_model -> artifacts/model_trainer/model.joblib),
+                # not the versioned model's own directory, so the live
+                # PredictionPipeline actually loads the rolled-back model.
+                stable_path = Path("artifacts/model_trainer/model.joblib")
                 shutil.copy2(str(versioned_path), str(stable_path))
                 checksum_path = Path(str(stable_path) + ".sha256")
                 save_checksum(stable_path, checksum_path)
