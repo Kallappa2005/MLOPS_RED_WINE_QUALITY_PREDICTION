@@ -958,38 +958,37 @@ def index():
             predict = pipeline.predict(data)
             final_prediction = round(float(predict[0]), 2)
 
-            plot_url = None
-            try:
-                import shap
-                import matplotlib
-                matplotlib.use('Agg')
-                import matplotlib.pyplot as plt
-                import base64
-                import io
+            # Observe the predicted quality score in Prometheus
+            wine_quality_metric.observe(final_prediction)
 
-                shap_values = pipeline.explain(data)
-                if shap_values is not None:
-                    plt.clf()
-                    # waterfall plot requires a single Explanation object
-                    shap.plots.waterfall(shap_values[0], show=False)
-                    buf = io.BytesIO()
-                    plt.savefig(buf, format="png", bbox_inches='tight', dpi=150)
-                    buf.seek(0)
-                    plot_url = base64.b64encode(buf.getvalue()).decode("utf-8")
-                    plt.close()
-            except Exception as e:
-                logger.error(f"Failed to generate SHAP plot: {e}")
+            # Log the successful prediction with structured JSON payload
+            logger.info("Prediction successful", extra={
+                "prediction_request": {
+                    "fixed_acidity": fixed_acidity,
+                    "volatile_acidity": volatile_acidity,
+                    "citric_acid": citric_acid,
+                    "residual_sugar": residual_sugar,
+                    "chlorides": chlorides,
+                    "free_sulfur_dioxide": free_sulfur_dioxide,
+                    "total_sulfur_dioxide": total_sulfur_dioxide,
+                    "density": density,
+                    "pH": pH,
+                    "sulphates": sulphates,
+                    "alcohol": alcohol
+                },
+                "predicted_quality": final_prediction
+            })
 
-            return render_template("results.html", prediction=final_prediction, plot_url=plot_url)
+            return render_template("results.html", prediction=final_prediction)
 
         except ValueError as exc:
-            logger.error(f"Validation error in /predict: {exc}")
+            logger.error(f"Validation error in /predict: {exc}", extra={"error_type": "ValueError"})
             return render_template(
                 "results.html",
                 error_msg=f"Validation error: {exc}",
             ), 400
         except Exception as exc:
-            logger.error(f"Unexpected error in /predict: {exc}")
+            logger.error(f"Unexpected error in /predict: {exc}", extra={"error_type": type(exc).__name__}, exc_info=True)
             return render_template(
                 "results.html",
                 error_msg="An unexpected error occurred. Please try again.",

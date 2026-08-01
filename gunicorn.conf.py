@@ -12,6 +12,37 @@ workers = int(os.environ.get("GUNICORN_WORKERS", "2"))
 timeout = int(os.environ.get("GUNICORN_TIMEOUT", "120"))
 loglevel = os.environ.get("GUNICORN_LOGLEVEL", "info")
 
+# Configure Gunicorn to output logs as JSON
+logconfig_dict = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'json': {
+            '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',
+            'format': '%(asctime)s %(levelname)s %(name)s %(message)s'
+        }
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'json',
+            'stream': 'ext://sys.stdout'
+        }
+    },
+    'loggers': {
+        'gunicorn.error': {
+            'level': loglevel.upper(),
+            'handlers': ['console'],
+            'propagate': False,
+        },
+        'gunicorn.access': {
+            'level': loglevel.upper(),
+            'handlers': ['console'],
+            'propagate': False,
+        }
+    }
+}
+
 
 def when_ready(server):
     """Called when the master process is ready — before forking workers.
