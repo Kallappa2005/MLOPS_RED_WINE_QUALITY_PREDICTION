@@ -5,13 +5,32 @@ from flask import request, jsonify
 import sqlite3
 import os
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "super_secret_wine_key")
+import secrets
+import logging
+from werkzeug.security import generate_password_hash, check_password_hash
+
+logger = logging.getLogger(__name__)
+
+JWT_SECRET = os.environ.get("JWT_SECRET")
+if not JWT_SECRET:
+    # NOTE: a per-process random secret means tokens minted by one worker
+    # are NOT valid in another worker/container or after a restart. This is
+    # insecure for any multi-worker deployment. Operators MUST set JWT_SECRET
+    # (see .env.example). We still allow local dev to boot, but warn loudly.
+    logger.warning(
+        "JWT_SECRET environment variable is NOT set. Generated a per-process "
+        "random secret: tokens will be invalid across workers/restarts. "
+        "Set JWT_SECRET in your environment / .env to fix this."
+    )
+    JWT_SECRET = secrets.token_hex(32)
 JWT_ALGORITHM = "HS256"
 
+# Passwords should be injected via environment variables or securely stored.
+# Here we use secure hashes, defaulting to env vars if provided.
 USER_DB = {
-    "admin": {"password": "admin_password", "role": "Admin"},
-    "engineer": {"password": "engineer_password", "role": "Engineer"},
-    "viewer": {"password": "viewer_password", "role": "Viewer"}
+    "admin": {"password_hash": generate_password_hash(os.environ.get("ADMIN_PASSWORD", secrets.token_urlsafe(16))), "role": "Admin"},
+    "engineer": {"password_hash": generate_password_hash(os.environ.get("ENGINEER_PASSWORD", secrets.token_urlsafe(16))), "role": "Engineer"},
+    "viewer": {"password_hash": generate_password_hash(os.environ.get("VIEWER_PASSWORD", secrets.token_urlsafe(16))), "role": "Viewer"}
 }
 
 class AuditLogger:

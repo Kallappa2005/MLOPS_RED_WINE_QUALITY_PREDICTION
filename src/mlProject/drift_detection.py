@@ -1,6 +1,6 @@
 import pandas as pd
 from scipy.stats import ks_2samp
-
+from mlProject import logger
 def detect_drift(reference_data: pd.DataFrame, current_data: pd.DataFrame, threshold: float = 0.05):
     """Detects data drift using Kolmogorov-Smirnov test"""
     drift_detected = {}
@@ -10,6 +10,6 @@ def detect_drift(reference_data: pd.DataFrame, current_data: pd.DataFrame, thres
             drift_detected[column] = p_value < threshold
             
     if any(drift_detected.values()):
-        print("Warning: Data drift detected in features!")
+        logger.warning("Data drift detected in features!")
         
     return drift_detected
