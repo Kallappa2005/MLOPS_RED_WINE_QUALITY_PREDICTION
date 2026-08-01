@@ -6,10 +6,22 @@ import sqlite3
 import os
 
 import secrets
+import logging
 from werkzeug.security import generate_password_hash, check_password_hash
+
+logger = logging.getLogger(__name__)
 
 JWT_SECRET = os.environ.get("JWT_SECRET")
 if not JWT_SECRET:
+    # NOTE: a per-process random secret means tokens minted by one worker
+    # are NOT valid in another worker/container or after a restart. This is
+    # insecure for any multi-worker deployment. Operators MUST set JWT_SECRET
+    # (see .env.example). We still allow local dev to boot, but warn loudly.
+    logger.warning(
+        "JWT_SECRET environment variable is NOT set. Generated a per-process "
+        "random secret: tokens will be invalid across workers/restarts. "
+        "Set JWT_SECRET in your environment / .env to fix this."
+    )
     JWT_SECRET = secrets.token_hex(32)
 JWT_ALGORITHM = "HS256"
 

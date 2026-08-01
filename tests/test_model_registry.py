@@ -12,7 +12,23 @@ from mlProject.utils.model_registry import (
     validate_registry,
 )
 
+from pathlib import Path
+from unittest.mock import patch, mock_open
+import pytest
 
+from mlProject.utils.model_registry import _lock_registry
+
+
+def test_lock_registry_closes_file_on_lock_failure():
+    mocked_open = mock_open()
+
+    with patch("builtins.open", mocked_open):
+        with patch("portalocker.lock", side_effect=Exception("lock failed")):
+            with pytest.raises(Exception):
+                _lock_registry(Path("registry.json"))
+
+    mocked_open().close.assert_called_once()
+    
 class TestModelRegistry(unittest.TestCase):
     def test_get_version_id_is_unique(self):
         ids = {get_version_id() for _ in range(100)}
@@ -168,6 +184,7 @@ class TestModelRegistry(unittest.TestCase):
                 metrics={"rmse": 0.5},
                 params={"alpha": 0.1},
             )
+            missing_path.write_text("weights")
             register_model(
                 registry_path=registry_path,
                 model_path=missing_path,
@@ -175,6 +192,7 @@ class TestModelRegistry(unittest.TestCase):
                 metrics={"rmse": 0.6},
                 params={"alpha": 0.2},
             )
+            missing_path.unlink()
 
             issues = validate_registry(registry_path)
             self.assertTrue(any("v002" in issue for issue in issues))
