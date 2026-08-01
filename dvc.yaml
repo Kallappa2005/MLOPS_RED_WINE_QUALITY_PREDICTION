@@ -44,6 +44,21 @@ stages:
       - artifacts/data_transformation/test.csv
       - artifacts/data_transformation/preprocessor.joblib
 
+  data_drift:
+    cmd: python src/mlProject/pipeline/stage_03_5_data_drift.py
+    deps:
+      - src/mlProject/pipeline/stage_03_5_data_drift.py
+      - src/mlProject/components/data_drift.py
+      - src/mlProject/config/configuration.py
+      - src/mlProject/entity/config_entity.py
+      - src/mlProject/utils/common.py
+      - config/config.yaml
+      - params.yaml
+      - artifacts/reference_data.csv
+      - artifacts/data_transformation/train.csv
+    outs:
+      - artifacts/data_drift/report.html
+
   model_trainer:
     cmd: python src/mlProject/pipeline/stage_04_model_trainer.py
     deps:

@@ -36,6 +36,14 @@ data_transformation:
   data_path: artifacts/data_ingestion/winequality-red.csv
   preprocessor_path: artifacts/data_transformation/preprocessor.joblib
 
+# Data Drift Stage
+# Uses Evidently AI to detect statistical drift between reference and incoming data
+data_drift:
+  root_dir: artifacts/data_drift
+  reference_data_path: artifacts/reference_data.csv
+  current_data_path: artifacts/data_transformation/train.csv
+  report_path: artifacts/data_drift/report.html
+
 # Model Trainer Stage
 # Trains ElasticNet regression model with configurable hyperparameters
 # Override root_dir via ENV_MODEL_TRAINER_ROOT_DIR

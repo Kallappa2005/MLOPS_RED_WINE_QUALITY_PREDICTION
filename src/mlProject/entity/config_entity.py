@@ -84,3 +84,11 @@ class ModelRegistryConfig:
     mlflow_experiment_name: str = "wine_quality_prediction"
     mlflow_registry_uri: str = ""
     mlflow_model_name: str = "WineQualityElasticNet"
+
+@dataclass(frozen=True)
+class DataDriftConfig:
+    root_dir: Path
+    reference_data_path: Path
+    current_data_path: Path
+    report_path: Path
+    drift_share_threshold: float

@@ -8,7 +8,8 @@ from mlProject.entity.config_entity import (DataIngestionConfig,
                                             DataTransformationConfig,
                                             ModelTrainerConfig,
                                             ModelEvaluationConfig,
-                                            ModelRegistryConfig)
+                                            ModelRegistryConfig,
+                                            DataDriftConfig)
 
 
 class ConfigurationManager:
@@ -222,4 +223,20 @@ class ConfigurationManager:
             mlflow_experiment_name=mlflow_experiment_name,
             mlflow_registry_uri=mlflow_registry_uri,
             mlflow_model_name=mlflow_model_name,
+        )
+
+    def get_data_drift_config(self) -> DataDriftConfig:
+        config = self.config.data_drift
+        params = self.params.DataDrift
+        self._validate_config_keys(config, ["root_dir", "reference_data_path", "current_data_path", "report_path"], "data_drift")
+
+        root_dir = config.root_dir
+        create_directories([root_dir])
+
+        return DataDriftConfig(
+            root_dir=Path(root_dir),
+            reference_data_path=Path(config.reference_data_path),
+            current_data_path=Path(config.current_data_path),
+            report_path=Path(config.report_path),
+            drift_share_threshold=float(params.drift_share_threshold)
         )
