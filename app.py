@@ -42,16 +42,14 @@ from mlProject.pipeline.prediction import PredictionPipeline
 from mlProject import logger
 from mlProject.utils.common import load_env_file, get_env_or_config
 from mlProject.utils.model_registry import load_registry, rollback_to_version
-from mlProject.components.data_transformation import NUMERIC_FEATURES
-from mlProject.components.xai_explainer import XAIExplainer
-import joblib
-
-# Enterprise MLOps components
+from prometheus_flask_exporter import PrometheusMetrics
+from prometheus_client import Histogram
 from mlProject.components.security import create_token, decode_token, require_role, AuditLogger, USER_DB
-from werkzeug.security import check_password_hash
+from mlProject.components.xai_explainer import XAIExplainer
+from mlProject.components.data_transformation import NUMERIC_FEATURES
 from mlProject.components.retraining import RetrainingEngine
 from mlProject.components.observability import APILogger, ObservabilityCollector
-
+from mlProject.utils.model_registry import update_registration
 
 @functools.lru_cache(maxsize=1)
 def _get_registry_path() -> Path:
@@ -69,27 +67,17 @@ load_env_file()
 
 app = Flask(__name__)
 
-# Request logging middleware for API Gateway Request Analytics
-@app.before_request
-def before_request():
-    g.start_time = time.time()
+# Initialize Prometheus Metrics
+metrics = PrometheusMetrics(app)
 
-@app.after_request
-def after_request(response):
-    if request.path.startswith("/static/") or request.path == "/health":
-        return response
-    start_time = getattr(g, "start_time", None)
-    if start_time:
-        latency_ms = (time.time() - start_time) * 1000
-        try:
-            ip = request.remote_addr
-            endpoint = request.path
-            method = request.method
-            status_code = response.status_code
-            APILogger().log_request(endpoint, method, status_code, latency_ms, ip)
-        except Exception as e:
-            app.logger.error(f"Error logging request: {e}")
-    return response
+# Static information as metric
+metrics.info('app_info', 'Application info', version='1.0.3')
+
+# Custom histogram for predicted quality
+wine_quality_metric = Histogram(
+    'predicted_wine_quality',
+    'Histogram of predicted wine quality scores'
+)
 
 # Global pipeline instance — loaded once at startup to avoid per-request disk I/O
 pipeline = PredictionPipeline()
@@ -958,29 +946,10 @@ def index():
             predict = pipeline.predict(data)
             final_prediction = round(float(predict[0]), 2)
 
-            plot_url = None
-            try:
-                import shap
-                import matplotlib
-                matplotlib.use('Agg')
-                import matplotlib.pyplot as plt
-                import base64
-                import io
+            # Observe the predicted quality score in Prometheus
+            wine_quality_metric.observe(final_prediction)
 
-                shap_values = pipeline.explain(data)
-                if shap_values is not None:
-                    plt.clf()
-                    # waterfall plot requires a single Explanation object
-                    shap.plots.waterfall(shap_values[0], show=False)
-                    buf = io.BytesIO()
-                    plt.savefig(buf, format="png", bbox_inches='tight', dpi=150)
-                    buf.seek(0)
-                    plot_url = base64.b64encode(buf.getvalue()).decode("utf-8")
-                    plt.close()
-            except Exception as e:
-                logger.error(f"Failed to generate SHAP plot: {e}")
-
-            return render_template("results.html", prediction=final_prediction, plot_url=plot_url)
+            return render_template("results.html", prediction=final_prediction)
 
         except ValueError as exc:
             logger.error(f"Validation error in /predict: {exc}")
