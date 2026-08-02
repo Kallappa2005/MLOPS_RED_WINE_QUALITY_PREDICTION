@@ -364,6 +364,34 @@ def _run_training_in_background() -> None:
             _training_lock.release()
         except RuntimeError:
             pass  # already released - should never happen
+# ---------------------------------------------------------------------------
+# Input validation for /predict
+# ---------------------------------------------------------------------------
+FEATURE_BOUNDS = {
+    "fixed_acidity":        (0.0, 20.0),
+    "volatile_acidity":     (0.0, 2.0),
+    "citric_acid":          (0.0, 1.5),
+    "residual_sugar":       (0.0, 20.0),
+    "chlorides":            (0.0, 1.0),
+    "free_sulfur_dioxide":  (0.0, 100.0),
+    "total_sulfur_dioxide": (0.0, 300.0),
+    "density":              (0.0, 1.5),
+    "pH":                   (0.0, 14.0),
+    "sulphates":            (0.0, 2.5),
+    "alcohol":              (0.0, 20.0),
+}
+
+
+def _validate_feature(name: str, value: float) -> str | None:
+    """Return an error message if value is outside the realistic bound for
+    `name`, else None."""
+    low, high = FEATURE_BOUNDS[name]
+    if value < low or value > high:
+        return (
+            f"'{name}' value {value} is out of the realistic range "
+            f"({low} to {high})."
+        )
+    return None
 
 
 def ensure_model_trained() -> None:
@@ -921,31 +949,30 @@ def index():
             sulphates            = float(request.form["sulphates"])
             alcohol              = float(request.form["alcohol"])
 
-            # Boundary validation checks
-            if fixed_acidity <= 0:
-                raise ValueError("Fixed Acidity must be positive.")
-            if volatile_acidity <= 0:
-                raise ValueError("Volatile Acidity must be positive.")
-            if citric_acid < 0:
-                raise ValueError("Citric Acid must be non-negative.")
-            if residual_sugar <= 0:
-                raise ValueError("Residual Sugar must be positive.")
-            if chlorides < 0:
-                raise ValueError("Chlorides must be non-negative.")
-            if free_sulfur_dioxide < 0:
-                raise ValueError("Free Sulfur Dioxide must be non-negative.")
-            if total_sulfur_dioxide < 0:
-                raise ValueError("Total Sulfur Dioxide must be non-negative.")
-            if density <= 0:
-                raise ValueError("Density must be positive.")
-            if not (0 < pH < 14):
-                raise ValueError("pH must be between 0 and 14.")
-            if sulphates < 0:
-                raise ValueError("Sulphates must be non-negative.")
-            if alcohol <= 0:
-                raise ValueError("Alcohol must be positive.")
+            features = {
+                "fixed_acidity": fixed_acidity,
+                "volatile_acidity": volatile_acidity,
+                "citric_acid": citric_acid,
+                "residual_sugar": residual_sugar,
+                "chlorides": chlorides,
+                "free_sulfur_dioxide": free_sulfur_dioxide,
+                "total_sulfur_dioxide": total_sulfur_dioxide,
+                "density": density,
+                "pH": pH,
+                "sulphates": sulphates,
+                "alcohol": alcohol,
+            }
 
-            data = pd.DataFrame([[
+            for name, value in features.items():
+                error = _validate_feature(name, value)
+                if error:
+                    logger.error(f"Validation error in /predict: {error}")
+                    return render_template(
+                        "results.html",
+                        error_msg=error,
+                    ), 400
+
+            data = np.array([
                 fixed_acidity, volatile_acidity, citric_acid, residual_sugar,
                 chlorides, free_sulfur_dioxide, total_sulfur_dioxide,
                 density, pH, sulphates, alcohol,
