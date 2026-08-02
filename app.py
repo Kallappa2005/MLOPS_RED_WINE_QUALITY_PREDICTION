@@ -1280,141 +1280,129 @@ def archive_model():
     return jsonify({"error": f"Version {version_id} not found in registry"}), 404
 
 
-@app.route("/fleet/nodes", methods=["POST"])
+@app.route("/twins", methods=["POST"])
 @require_role(["Admin", "Engineer"])
-def register_fleet_node():
-    """Register a model version as a node in the autonomous command grid."""
-    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid, CommandGridError
+def create_twin():
+    """Create a digital twin from a registered model version (defaults to production)."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
     data = request.json or {}
     name = data.get("name")
-    target_ref = data.get("target_ref")
-    if not name or not target_ref:
-        return jsonify({"error": "name and target_ref are required"}), 400
+    if not name:
+        return jsonify({"error": "name is required"}), 400
     try:
-        node = AutonomousCommandGrid().register_node(name, target_ref, node_type=data.get("node_type", "model_version"))
-        return jsonify(node), 201
-    except CommandGridError as e:
+        twin = DigitalTwin().create_twin(name, source_version_id=data.get("source_version_id"))
+        return jsonify(twin), 201
+    except DigitalTwinError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
-        app.logger.error(f"Failed to register fleet node: {e}")
-        return jsonify({"error": "Failed to register fleet node"}), 500
+        app.logger.error(f"Failed to create digital twin: {e}")
+        return jsonify({"error": "Failed to create digital twin"}), 500
 
 
-@app.route("/fleet/nodes", methods=["GET"])
+@app.route("/twins", methods=["GET"])
 @require_role(["Admin", "Engineer", "Viewer"])
-def list_fleet_nodes():
-    """List all nodes tracked by the command grid."""
-    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid
-    return jsonify(AutonomousCommandGrid().list_nodes())
+def list_twins():
+    """List all digital twins."""
+    from mlProject.components.digital_twin import DigitalTwin
+    return jsonify(DigitalTwin().list_twins())
 
 
-@app.route("/fleet/nodes/<int:node_id>", methods=["GET"])
+@app.route("/twins/<twin_id>", methods=["GET"])
 @require_role(["Admin", "Engineer", "Viewer"])
-def get_fleet_node(node_id):
-    """Fetch a single fleet node."""
-    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid, CommandGridError
+def get_twin(twin_id):
+    """Fetch a single digital twin's metadata."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
     try:
-        return jsonify(AutonomousCommandGrid().get_node(node_id))
-    except CommandGridError as e:
+        return jsonify(DigitalTwin().get_twin(twin_id))
+    except DigitalTwinError as e:
         return jsonify({"error": str(e)}), 404
 
 
-@app.route("/fleet/nodes/<int:node_id>", methods=["DELETE"])
+@app.route("/twins/<twin_id>", methods=["DELETE"])
 @require_role(["Admin"])
-def deregister_fleet_node(node_id):
-    """Remove a node from the fleet."""
-    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid, CommandGridError
+def delete_twin(twin_id):
+    """Delete a digital twin and its stored model artifact."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
     try:
-        AutonomousCommandGrid().deregister_node(node_id)
-        return jsonify({"message": f"Node {node_id} deregistered"})
-    except CommandGridError as e:
+        DigitalTwin().delete_twin(twin_id)
+        return jsonify({"message": f"Twin {twin_id} deleted"})
+    except DigitalTwinError as e:
         return jsonify({"error": str(e)}), 404
 
 
-@app.route("/fleet/command", methods=["POST"])
+@app.route("/twins/<twin_id>/sync", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def sync_twin(twin_id):
+    """Re-sync a twin's model + metrics snapshot to the current production version."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
+    try:
+        return jsonify(DigitalTwin().sync_state(twin_id))
+    except DigitalTwinError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"Failed to sync twin {twin_id}: {e}")
+        return jsonify({"error": "Failed to sync twin"}), 500
+
+
+@app.route("/twins/<twin_id>/simulate", methods=["POST"])
 @limiter.limit("30 per minute")
 @require_role(["Admin", "Engineer"])
-def execute_fleet_command():
-    """Dispatch a command (promote/demote/archive/retrain/health_check) across one or more fleet nodes."""
-    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid, CommandGridError
+def simulate_twin(twin_id):
+    """Run a what-if scenario against the twin's frozen model — never touches production."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
     data = request.json or {}
-    node_ids = data.get("node_ids")
-    command = data.get("command")
-    params = data.get("params", {})
-    if not node_ids or not isinstance(node_ids, list) or not command:
-        return jsonify({"error": "node_ids (list) and command are required"}), 400
+    scenario_name = data.get("scenario_name", "unnamed_scenario")
+    input_rows = data.get("input_rows")
+    if not input_rows or not isinstance(input_rows, list):
+        return jsonify({"error": "input_rows must be a non-empty list of feature dicts"}), 400
     try:
-        results = AutonomousCommandGrid().execute_command(node_ids, command, params)
-        return jsonify(results)
-    except CommandGridError as e:
+        result = DigitalTwin().run_simulation(twin_id, scenario_name, input_rows)
+        return jsonify(result)
+    except DigitalTwinError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
-        app.logger.error(f"Fleet command '{command}' failed: {e}")
-        return jsonify({"error": "Fleet command execution failed"}), 500
+        app.logger.error(f"Simulation failed for twin {twin_id}: {e}")
+        return jsonify({"error": "Simulation failed"}), 500
 
 
-@app.route("/fleet/command/history", methods=["GET"])
+@app.route("/twins/<twin_id>/simulations", methods=["GET"])
 @require_role(["Admin", "Engineer", "Viewer"])
-def fleet_command_history():
-    """Fetch past command executions, optionally filtered by node."""
-    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid
-    node_id = request.args.get("node_id", type=int)
-    limit = request.args.get("limit", default=100, type=int)
-    return jsonify(AutonomousCommandGrid().get_command_history(node_id=node_id, limit=limit))
+def twin_simulation_history(twin_id):
+    """Fetch a twin's past simulation runs."""
+    from mlProject.components.digital_twin import DigitalTwin
+    limit = request.args.get("limit", default=50, type=int)
+    return jsonify(DigitalTwin().get_simulation_history(twin_id, limit=limit))
 
 
-@app.route("/fleet/health", methods=["GET"])
-@require_role(["Admin", "Engineer", "Viewer"])
-def fleet_health():
-    """Real-time fleet-wide health: shared system health plus per-node status."""
-    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid
-    return jsonify(AutonomousCommandGrid().get_fleet_health())
-
-
-@app.route("/fleet/incidents", methods=["POST"])
+@app.route("/twins/<twin_id>/test-change", methods=["POST"])
 @require_role(["Admin", "Engineer"])
-def report_fleet_incident():
-    """Report an incident affecting one or more fleet nodes. Critical incidents auto-trigger retraining."""
-    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid, CommandGridError
+def test_twin_change(twin_id):
+    """Compare a candidate model artifact against the twin's baseline before promotion."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
     data = request.json or {}
-    title = data.get("title")
-    severity = data.get("severity")
-    affected_node_ids = data.get("affected_node_ids", [])
-    if not title or not severity:
-        return jsonify({"error": "title and severity are required"}), 400
+    candidate_model_path = data.get("candidate_model_path")
+    test_rows = data.get("test_rows")
+    if not candidate_model_path or not test_rows:
+        return jsonify({"error": "candidate_model_path and test_rows are required"}), 400
     try:
-        incident = AutonomousCommandGrid().report_incident(title, severity, affected_node_ids, data.get("description", ""))
-        return jsonify(incident), 201
-    except CommandGridError as e:
+        result = DigitalTwin().test_change(twin_id, candidate_model_path, test_rows)
+        return jsonify(result)
+    except DigitalTwinError as e:
         return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"Change test failed for twin {twin_id}: {e}")
+        return jsonify({"error": "Change test failed"}), 500
 
 
-@app.route("/fleet/incidents", methods=["GET"])
+@app.route("/twins/<twin_id>/drift", methods=["GET"])
 @require_role(["Admin", "Engineer", "Viewer"])
-def list_fleet_incidents():
-    """List incidents, optionally filtered by status (open/resolved)."""
-    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid
-    return jsonify(AutonomousCommandGrid().list_incidents(status=request.args.get("status")))
-
-
-@app.route("/fleet/incidents/<int:incident_id>/resolve", methods=["POST"])
-@require_role(["Admin", "Engineer"])
-def resolve_fleet_incident(incident_id):
-    """Mark an incident resolved."""
-    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid, CommandGridError
-    data = request.json or {}
+def twin_drift(twin_id):
+    """Check whether a twin has fallen out of sync with the current production version."""
+    from mlProject.components.digital_twin import DigitalTwin, DigitalTwinError
     try:
-        return jsonify(AutonomousCommandGrid().resolve_incident(incident_id, data.get("resolution_notes", "")))
-    except CommandGridError as e:
+        return jsonify(DigitalTwin().detect_twin_drift(twin_id))
+    except DigitalTwinError as e:
         return jsonify({"error": str(e)}), 404
-
-
-@app.route("/fleet/optimize", methods=["GET"])
-@require_role(["Admin", "Engineer", "Viewer"])
-def fleet_optimize_allocation():
-    """Rank registered model versions and recommend which one should serve production traffic."""
-    from mlProject.components.autonomous_command_grid import AutonomousCommandGrid
-    return jsonify(AutonomousCommandGrid().optimize_allocation())
 
 
 @app.route("/observability/health", methods=["GET"])
