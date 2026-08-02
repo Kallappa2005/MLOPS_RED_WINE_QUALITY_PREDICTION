@@ -12,6 +12,7 @@ from mlProject import logger
 class PredictionPipeline:
     def __init__(self, model_path: Path = None):
         self.unified_pipeline = None
+        self.explainer = None
         self._model_path = model_path
         self._loaded_mtime = None
         if model_path is None:
@@ -65,6 +66,18 @@ class PredictionPipeline:
             self.unified_pipeline = joblib.load(model_path)
             self._loaded_mtime = current_mtime
             logger.info(f"Loaded unified pipeline from {model_path}")
+            
+            # Load SHAP explainer
+            explainer_path = model_path.parent / "explainer.joblib"
+            if explainer_path.exists():
+                try:
+                    self.explainer = joblib.load(explainer_path)
+                    logger.info(f"Loaded SHAP explainer from {explainer_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to load SHAP explainer: {e}")
+                    self.explainer = None
+            else:
+                self.explainer = None
 
         if isinstance(data, np.ndarray):
             if data.shape[1] != len(NUMERIC_FEATURES):
@@ -95,3 +108,25 @@ class PredictionPipeline:
             raise RuntimeError(f"Model prediction failed: {e}") from e
         
         return prediction
+
+    def explain(self, data):
+        """Returns SHAP values for the given data if explainer is loaded."""
+        if self.explainer is None:
+            return None
+            
+        if isinstance(data, np.ndarray):
+            input_data = data
+        elif isinstance(data, pd.DataFrame):
+            input_data = data[NUMERIC_FEATURES].values
+        else:
+            input_data = data
+            
+        try:
+            shap_values = self.explainer(input_data)
+            # Ensure feature names are attached for plot labeling
+            if getattr(shap_values, "feature_names", None) is None:
+                shap_values.feature_names = NUMERIC_FEATURES
+            return shap_values
+        except Exception as e:
+            logger.error(f"SHAP explanation failed: {e}")
+            return None

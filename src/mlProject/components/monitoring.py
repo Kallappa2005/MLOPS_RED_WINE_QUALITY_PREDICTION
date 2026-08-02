@@ -52,7 +52,8 @@ class PredictionLogger:
             return pd.DataFrame()
         try:
             conn = sqlite3.connect(self.db_path)
-            df = pd.read_sql_query(f"SELECT * FROM predictions ORDER BY timestamp DESC LIMIT {limit}", conn)
+            limit = int(limit)
+            df = pd.read_sql_query("SELECT * FROM predictions ORDER BY timestamp DESC LIMIT ?", conn, params=(limit,))
             conn.close()
             rename_dict = {col.replace(' ', '_'): col for col in NUMERIC_FEATURES}
             df = df.rename(columns=rename_dict)
@@ -89,9 +90,11 @@ class DriftDetector:
         drift_report = {}
         drift_detected = False
         drift_features_count = 0
+        evaluated_features = 0
         
         for col in NUMERIC_FEATURES:
             if col in ref_df.columns and col in pred_df.columns:
+                evaluated_features += 1
                 ref_dist = ref_df[col].dropna().values
                 pred_dist = pred_df[col].dropna().values
                 
@@ -112,7 +115,7 @@ class DriftDetector:
         return {
             "status": "success",
             "drift_detected": drift_detected,
-            "drifted_features_ratio": float(drift_features_count / len(NUMERIC_FEATURES)),
+            "drifted_features_ratio": float(drift_features_count / evaluated_features) if evaluated_features else 0.0,
             "total_predictions": len(pred_df),
             "metrics": drift_report
         }

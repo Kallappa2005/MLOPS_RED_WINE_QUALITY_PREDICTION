@@ -37,18 +37,10 @@ def get_mlflow_runs():
         return {"enabled": True, "runs": runs_list}
     except Exception as e:
         logger.error(f"Failed to fetch mlflow runs: {e}")
+        # Surface the real failure instead of inventing a fake run, so the
+        # breakdown is visible to operators rather than masked.
         return {
-            "enabled": True,
+            "enabled": False,
             "error": str(e),
-            "runs": [
-                {
-                    "run_id": "mock_elasticnet_run_01",
-                    "run_name": "elastic_net_baseline",
-                    "status": "FINISHED",
-                    "start_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    "metrics": {"r2": 0.3552, "rmse": 0.6469, "mae": 0.5063},
-                    "params": {"alpha": "0.2", "l1_ratio": "0.1"},
-                    "tags": {"model_type": "ElasticNet"}
-                }
-            ]
+            "runs": []
         }
