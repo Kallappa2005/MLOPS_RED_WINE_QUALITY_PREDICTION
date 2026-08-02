@@ -184,6 +184,7 @@ class TestModelRegistry(unittest.TestCase):
                 metrics={"rmse": 0.5},
                 params={"alpha": 0.1},
             )
+            missing_path.write_text("weights")
             register_model(
                 registry_path=registry_path,
                 model_path=missing_path,
@@ -191,6 +192,7 @@ class TestModelRegistry(unittest.TestCase):
                 metrics={"rmse": 0.6},
                 params={"alpha": 0.2},
             )
+            missing_path.unlink()
 
             issues = validate_registry(registry_path)
             self.assertTrue(any("v002" in issue for issue in issues))

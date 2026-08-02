@@ -28,6 +28,7 @@ import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+import portalocker
 import io
 import numpy as np
 import pandas as pd
@@ -47,6 +48,7 @@ import joblib
 
 # Enterprise MLOps components
 from mlProject.components.security import create_token, decode_token, require_role, AuditLogger, USER_DB
+from werkzeug.security import check_password_hash
 from mlProject.components.retraining import RetrainingEngine
 from mlProject.components.observability import APILogger, ObservabilityCollector
 
@@ -216,13 +218,17 @@ def _verify_train_token() -> bool:
     """
     expected = os.environ.get("TRAIN_SECRET", "")
     if not expected:
+        app.logger.warning("TRAIN_SECRET not set - /train endpoint disabled")
         return False  # No secret configured - refuse everything
 
     supplied = (
         request.args.get("token", "")
         or request.headers.get("X-Train-Token", "")
     )
-    return secrets.compare_digest(supplied.encode(), expected.encode())
+    result = secrets.compare_digest(supplied.encode(), expected.encode())
+    if not result:
+        app.logger.warning(f"Unauthorized /train access attempt from {request.remote_addr}")
+    return result
 
 
 def get_current_production_version(registry_path):
@@ -292,9 +298,9 @@ def validate_config_at_startup() -> None:
         if not Path(path).exists():
             missing.append(f"{desc} ({path})")
     if missing:
-        logger.error(f"ERROR: Missing required configuration files: {', '.join(missing)}")
+        print(f"ERROR: Missing required configuration files: {', '.join(missing)}")
         sys.exit(1)
-    logger.info(f"Configuration validation passed. Environment: {os.environ.get(ENV_TAG, 'development')}")
+    print(f"Configuration validation passed. Environment: {os.environ.get(ENV_TAG, 'development')}")
 
 
 # ---------------------------------------------------------------------------
@@ -303,15 +309,15 @@ def validate_config_at_startup() -> None:
 def _run_training_in_background() -> None:
     """Subprocess-based training; releases _training_lock when done."""
     global is_training, _training_process
-        if not _acquire_training_file_lock():
-            is_training = False
-            with _log_lock:
-                training_log.append("Training rejected: another process is already training")
-            try:
-                _training_lock.release()
-            except RuntimeError:
-                pass
-            return
+    if not _acquire_training_file_lock():
+        is_training = False
+        with _log_lock:
+            training_log.append("Training rejected: another process is already training")
+        try:
+            _training_lock.release()
+        except RuntimeError:
+            pass
+        return
     start_time = time.time()
     _write_training_state(True, ["Training started..."], started_at=start_time)
     try:
@@ -371,9 +377,9 @@ def ensure_model_trained() -> None:
 
     if not model_path.exists():
         if not _acquire_training_file_lock():
-            logger.info("Auto-training skipped: another process is already training")
+            print("Auto-training skipped: another process is already training")
             return
-        logger.info("Model not found - starting automatic training...")
+        print("Model not found - starting automatic training...")
         try:
             train_timeout = int(os.environ.get("TRAIN_TIMEOUT", "1800"))
             result = subprocess.run(
@@ -383,11 +389,11 @@ def ensure_model_trained() -> None:
                 timeout=train_timeout,
             )
             if result.returncode == 0:
-                logger.info("Auto-training completed!")
+                print("Auto-training completed!")
             else:
-                logger.error(f"Auto-training failed:\n{result.stderr}")
+                print(f"Auto-training failed:\n{result.stderr}")
         except Exception as exc:
-            logger.error(f"Auto-training failed: {exc}")
+            print(f"Auto-training failed: {exc}")
         finally:
             _release_training_file_lock()
     else:
@@ -395,9 +401,9 @@ def ensure_model_trained() -> None:
         from mlProject.utils.model_registry import load_registry
         checksum_path = Path(str(model_path) + ".sha256")
         if not verify_model_integrity(model_path, checksum_path):
-            logger.warning("Model integrity check FAILED - consider retraining.")
+            print("Model integrity check FAILED - consider retraining.")
         else:
-            logger.info("Model already exists - ready for predictions!")
+            print("Model already exists - ready for predictions!")
         # Check if active model matches registry production version
         try:
             registry_path = _get_registry_path()
@@ -409,7 +415,7 @@ def ensure_model_trained() -> None:
                     model_info = json.load(f)
                 loaded_version = model_info.get("version_id")
                 if loaded_version and loaded_version != prod_id:
-                    logger.warning(
+                    print(
                         f"WARNING: Active model version {loaded_version} does not match "
                         f"registry production version {prod_id}."
                     )
@@ -535,10 +541,43 @@ def explain_local():
             data = request.form.to_dict()
         inputs = {}
         for feature in NUMERIC_FEATURES:
-            val = data.get(feature) or data.get(feature.replace(" ", "_"))
+            # Use an explicit None check so that legitimate zero/non-negative
+            # values (e.g. citric acid: 0, chlorides: 0) are accepted
+            # instead of being dropped by truthiness of `or`.
+            val = data.get(feature)
+            if val is None:
+                val = data.get(feature.replace(" ", "_"))
             if val is None:
                 return jsonify({"error": f"Missing required feature: {feature}"}), 400
-            inputs[feature] = float(val)
+            try:
+                val = float(val)
+            except (TypeError, ValueError):
+                return jsonify({"error": f"Invalid value for feature: {feature}"}), 400
+            # Range validation must match the /predict contract so the two
+            # endpoints accept/reject identical inputs.
+            if feature == "fixed acidity" and val <= 0:
+                return jsonify({"error": "Fixed Acidity must be positive."}), 400
+            if feature == "volatile acidity" and val <= 0:
+                return jsonify({"error": "Volatile Acidity must be positive."}), 400
+            if feature == "citric acid" and val < 0:
+                return jsonify({"error": "Citric Acid must be non-negative."}), 400
+            if feature == "residual sugar" and val <= 0:
+                return jsonify({"error": "Residual Sugar must be positive."}), 400
+            if feature == "chlorides" and val < 0:
+                return jsonify({"error": "Chlorides must be non-negative."}), 400
+            if feature == "free sulfur dioxide" and val < 0:
+                return jsonify({"error": "Free Sulfur Dioxide must be non-negative."}), 400
+            if feature == "total sulfur dioxide" and val < 0:
+                return jsonify({"error": "Total Sulfur Dioxide must be non-negative."}), 400
+            if feature == "density" and val <= 0:
+                return jsonify({"error": "Density must be positive."}), 400
+            if feature == "pH" and not (0 < val < 14):
+                return jsonify({"error": "pH must be between 0 and 14."}), 400
+            if feature == "sulphates" and val < 0:
+                return jsonify({"error": "Sulphates must be non-negative."}), 400
+            if feature == "alcohol" and val <= 0:
+                return jsonify({"error": "Alcohol must be positive."}), 400
+            inputs[feature] = val
         if explainer is None:
             if pipeline.unified_pipeline is None:
                 pipeline.predict(np.zeros((1, len(NUMERIC_FEATURES))))
@@ -580,12 +619,217 @@ def monitoring_history():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/ethics/check", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def ethics_check():
+    """Run a bias detection check across a protected attribute for a batch of records."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    data = request.json or {}
+    records = data.get("records")
+    protected_attribute = data.get("protected_attribute")
+    threshold = data.get("threshold", 0.1)
+
+    if not records or not protected_attribute:
+        return jsonify({"error": "records and protected_attribute are required"}), 400
+
+    try:
+        monitor = EthicalAIMonitor()
+        report = monitor.detect_bias(records, protected_attribute, threshold=threshold)
+        return jsonify(report)
+    except Exception as e:
+        app.logger.error(f"Failed to run ethics check: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/ethics/bias/history", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def ethics_bias_history():
+    """Return historical bias check results."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    limit = request.args.get("limit", default=100, type=int)
+    monitor = EthicalAIMonitor()
+    return jsonify(monitor.get_bias_history(limit=limit))
+
+
+@app.route("/ethics/violations", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def ethics_violations():
+    """Return logged compliance violations."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    limit = request.args.get("limit", default=100, type=int)
+    monitor = EthicalAIMonitor()
+    return jsonify(monitor.get_compliance_report(limit=limit))
+
+
+@app.route("/ethics/violations", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def ethics_log_violation():
+    """Manually log a compliance violation."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    data = request.json or {}
+    violation_type = data.get("violation_type")
+    severity = data.get("severity")
+    description = data.get("description", "")
+
+    if not violation_type or not severity:
+        return jsonify({"error": "violation_type and severity are required"}), 400
+
+    monitor = EthicalAIMonitor()
+    violation_id = monitor.log_violation(violation_type, severity, description)
+    return jsonify({"message": "Violation logged", "id": violation_id})
+
+
+@app.route("/ethics/alerts", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def ethics_alerts():
+    """Return active (or all) ethics monitoring alerts."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    status = request.args.get("status", default="open")
+    if status.lower() == "all":
+        status = None
+    limit = request.args.get("limit", default=100, type=int)
+    monitor = EthicalAIMonitor()
+    return jsonify(monitor.get_alerts(status=status, limit=limit))
+
+
+@app.route("/ethics/alerts/<int:alert_id>/resolve", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def ethics_resolve_alert(alert_id):
+    """Mark an ethics alert as resolved."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    monitor = EthicalAIMonitor()
+    resolved = monitor.resolve_alert(alert_id)
+    if resolved:
+        return jsonify({"message": f"Alert {alert_id} resolved"})
+    return jsonify({"error": f"Alert {alert_id} not found or already resolved"}), 404
+
+
+@app.route("/ethics/dashboard", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def ethics_dashboard():
+    """Return summary counts for the ethical AI monitoring dashboard widget."""
+    from mlProject.components.ethical_monitoring import EthicalAIMonitor
+    monitor = EthicalAIMonitor()
+    return jsonify(monitor.get_dashboard_summary())
+
+
 @app.route("/experiments/runs", methods=["GET"])
 @limiter.limit("30 per minute")
 def experiments_runs():
     """Return all experiments run from MLflow."""
     from mlProject.components.experiment_tracker import get_mlflow_runs
-    return jsonify(get_mlflow_runs())
+    try:
+        return jsonify(get_mlflow_runs())
+    except Exception as e:
+        app.logger.error(f"Failed to fetch experiments runs: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/decisions/analyze", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def decisions_analyze():
+    """Analyze a decision context and return a ranked, explainable recommendation."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    data = request.json or {}
+    context = data.get("context")
+    options = data.get("options")
+
+    if not context or not options:
+        return jsonify({"error": "context and options are required"}), 400
+
+    try:
+        engine = DecisionIntelligenceEngine()
+        result = engine.analyze_decision(context, options)
+        status_code = 200 if result.get("status") == "success" else 400
+        return jsonify(result), status_code
+    except Exception as e:
+        app.logger.error(f"Failed to analyze decision: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/decisions/history", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def decisions_history():
+    """Return historical decision recommendations."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    limit = request.args.get("limit", default=100, type=int)
+    engine = DecisionIntelligenceEngine()
+    return jsonify(engine.get_decision_history(limit=limit))
+
+
+@app.route("/decisions/outcome", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def decisions_log_outcome():
+    """Log the actual outcome of a past decision, for performance tracking."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    data = request.json or {}
+    decision_id = data.get("decision_id")
+    chosen_option = data.get("chosen_option")
+    actual_outcome = data.get("actual_outcome")
+
+    if decision_id is None or not chosen_option or actual_outcome is None:
+        return jsonify({"error": "decision_id, chosen_option, and actual_outcome are required"}), 400
+
+    engine = DecisionIntelligenceEngine()
+    outcome_id = engine.log_outcome(decision_id, chosen_option, actual_outcome)
+    return jsonify({"message": "Outcome logged", "id": outcome_id})
+
+
+@app.route("/decisions/performance", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def decisions_performance():
+    """Return recommendation performance metrics based on logged outcomes."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    engine = DecisionIntelligenceEngine()
+    return jsonify(engine.get_performance_metrics())
+
+
+@app.route("/decisions/alerts", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def decisions_alerts():
+    """Return active (or all) decision intelligence alerts."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    status = request.args.get("status", default="open")
+    if status.lower() == "all":
+        status = None
+    limit = request.args.get("limit", default=100, type=int)
+    engine = DecisionIntelligenceEngine()
+    return jsonify(engine.get_alerts(status=status, limit=limit))
+
+
+@app.route("/decisions/alerts/<int:alert_id>/resolve", methods=["POST"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer"])
+def decisions_resolve_alert(alert_id):
+    """Mark a decision intelligence alert as resolved."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    engine = DecisionIntelligenceEngine()
+    resolved = engine.resolve_alert(alert_id)
+    if resolved:
+        return jsonify({"message": f"Alert {alert_id} resolved"})
+    return jsonify({"error": f"Alert {alert_id} not found or already resolved"}), 404
+
+
+@app.route("/decisions/dashboard", methods=["GET"])
+@limiter.limit("30 per minute")
+@require_role(["Admin", "Engineer", "Viewer"])
+def decisions_dashboard():
+    """Return summary counts for the decision intelligence dashboard widget."""
+    from mlProject.components.decision_intelligence import DecisionIntelligenceEngine
+    engine = DecisionIntelligenceEngine()
+    return jsonify(engine.get_dashboard_summary())
 
 
 @app.route("/benchmarking/results", methods=["GET"])
@@ -615,7 +859,11 @@ def benchmarking_results():
 def analytics_summary():
     """Return prediction summary statistics and trend data."""
     from mlProject.components.analytics import get_analytics_summary
-    return jsonify(get_analytics_summary())
+    try:
+        return jsonify(get_analytics_summary())
+    except Exception as e:
+        app.logger.error(f"Failed to fetch analytics summary: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/analytics/export/csv", methods=["GET"])
@@ -710,32 +958,29 @@ def index():
             predict = pipeline.predict(data)
             final_prediction = round(float(predict[0]), 2)
 
-            # Log prediction to local SQLite database for monitoring & drift
+            plot_url = None
             try:
-                from mlProject.components.monitoring import PredictionLogger
-                features_dict = {
-                    "fixed acidity": fixed_acidity,
-                    "volatile acidity": volatile_acidity,
-                    "citric acid": citric_acid,
-                    "residual sugar": residual_sugar,
-                    "chlorides": chlorides,
-                    "free sulfur dioxide": free_sulfur_dioxide,
-                    "total sulfur dioxide": total_sulfur_dioxide,
-                    "density": density,
-                    "pH": pH,
-                    "sulphates": sulphates,
-                    "alcohol": alcohol
-                }
-                PredictionLogger().log_prediction(features_dict, final_prediction)
-                # Automatically check for drift and run retraining if drift ratio >= 20%
-                try:
-                    RetrainingEngine().check_and_trigger_on_drift()
-                except Exception as drift_err:
-                    logger.error(f"Failed to run automated drift check: {drift_err}")
-            except Exception as exc_log:
-                logger.error(f"Prediction logging failed: {exc_log}")
+                import shap
+                import matplotlib
+                matplotlib.use('Agg')
+                import matplotlib.pyplot as plt
+                import base64
+                import io
 
-            return render_template("results.html", prediction=final_prediction)
+                shap_values = pipeline.explain(data)
+                if shap_values is not None:
+                    plt.clf()
+                    # waterfall plot requires a single Explanation object
+                    shap.plots.waterfall(shap_values[0], show=False)
+                    buf = io.BytesIO()
+                    plt.savefig(buf, format="png", bbox_inches='tight', dpi=150)
+                    buf.seek(0)
+                    plot_url = base64.b64encode(buf.getvalue()).decode("utf-8")
+                    plt.close()
+            except Exception as e:
+                logger.error(f"Failed to generate SHAP plot: {e}")
+
+            return render_template("results.html", prediction=final_prediction, plot_url=plot_url)
 
         except ValueError as exc:
             logger.error(f"Validation error in /predict: {exc}")
@@ -921,7 +1166,7 @@ def auth_login():
         return jsonify({"error": "Username and password are required"}), 400
         
     user = USER_DB.get(username)
-    if not user or user["password"] != password:
+    if not user or not check_password_hash(user.get("password_hash", ""), password):
         AuditLogger().log_action(username, "login", "FAILED", request.remote_addr, "Invalid password or user")
         return jsonify({"error": "Invalid username or password"}), 401
         
@@ -936,8 +1181,12 @@ def auth_login():
 def get_audit_logs():
     """Retrieve security audit logs."""
     limit = request.args.get("limit", default=100, type=int)
-    logs = AuditLogger().get_logs(limit=limit)
-    return jsonify(logs)
+    try:
+        logs = AuditLogger().get_logs(limit=limit)
+        return jsonify(logs)
+    except Exception as e:
+        app.logger.error(f"Failed to fetch audit logs: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/retrain/trigger", methods=["POST"])
@@ -1160,16 +1409,24 @@ def twin_drift(twin_id):
 @require_role(["Admin", "Engineer", "Viewer"])
 def observability_health():
     """Retrieve system health and active alerts."""
-    collector = ObservabilityCollector()
-    return jsonify(collector.get_system_health())
+    try:
+        collector = ObservabilityCollector()
+        return jsonify(collector.get_system_health())
+    except Exception as e:
+        app.logger.error(f"Failed to fetch system health: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/analytics", methods=["GET"])
 @require_role(["Admin", "Engineer", "Viewer"])
 def api_analytics():
     """Retrieve API latency, status codes, and request analytics."""
-    logger = APILogger()
-    return jsonify(logger.get_analytics(hours=24))
+    try:
+        logger = APILogger()
+        return jsonify(logger.get_analytics(hours=24))
+    except Exception as e:
+        app.logger.error(f"Failed to fetch API analytics: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -1177,11 +1434,11 @@ def api_analytics():
 # ---------------------------------------------------------------------------
 def _shutdown_handler(signum, frame):
     """Clean up training subprocess on shutdown signals."""
-    logger.info(f"Received signal {signum}, shutting down...")
+    print(f"Received signal {signum}, shutting down...")
     global _training_process
     with _training_process_lock:
         if _training_process is not None:
-            logger.info("Terminating training subprocess...")
+            print("Terminating training subprocess...")
             _training_process.terminate()
     sys.exit(0)
 

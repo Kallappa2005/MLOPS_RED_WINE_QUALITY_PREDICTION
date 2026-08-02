@@ -282,6 +282,29 @@ def update_registration(
         for v in registry.get("versions", []):
             if v.get("id") == version_id:
                 was_production = v.get("status") == "production" or registry.get("production") == version_id
+
+                # Enforce the supplied quality gate when promoting to production.
+                if status == "production" and quality_gate_max_rmse_degradation_pct is not None and metrics is not None:
+                    current_production = registry.get("production")
+                    previous_metrics = None
+                    if current_production and current_production != version_id:
+                        for pv in registry.get("versions", []):
+                            if pv.get("id") == current_production:
+                                previous_metrics = pv.get("metrics", {})
+                                break
+                    if previous_metrics and "rmse" in previous_metrics and "rmse" in metrics:
+                        prev_rmse = previous_metrics["rmse"]
+                        new_rmse = metrics["rmse"]
+                        if prev_rmse > 0:
+                            degradation_pct = ((new_rmse - prev_rmse) / prev_rmse) * 100
+                            if degradation_pct > quality_gate_max_rmse_degradation_pct:
+                                logger.warning(
+                                    f"Model {version_id} REJECTED on update: RMSE degradation "
+                                    f"{degradation_pct:.2f}% exceeds threshold "
+                                    f"{quality_gate_max_rmse_degradation_pct}%"
+                                )
+                                return False
+
                 if metrics is not None:
                     v["metrics"] = metrics
                 if status is not None:
@@ -387,7 +410,11 @@ def rollback_to_version(registry_path: Path, version_id: str) -> bool:
                         f"model file not found at {versioned_path}"
                     )
                     return False
-                stable_path = versioned_path.parent / "model.joblib"
+                # Restore to the canonical production stable path used everywhere
+                # else (register_model / promote_model -> artifacts/model_trainer/model.joblib),
+                # not the versioned model's own directory, so the live
+                # PredictionPipeline actually loads the rolled-back model.
+                stable_path = Path("artifacts/model_trainer/model.joblib")
                 shutil.copy2(str(versioned_path), str(stable_path))
                 checksum_path = Path(str(stable_path) + ".sha256")
                 save_checksum(stable_path, checksum_path)
