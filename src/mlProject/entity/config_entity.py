@@ -68,8 +68,7 @@ class ModelEvaluationConfig:
     metric_file_name: Path
     target_column: str
     preprocessor_path: Optional[Path] = None
-    use_scaler: bool = True
-    per_class_r2_threshold: float = -0.5
+    per_class_max_rmse: float = 1.5
     override_root_dir: Optional[Path] = None
 
 @dataclass(frozen=True)

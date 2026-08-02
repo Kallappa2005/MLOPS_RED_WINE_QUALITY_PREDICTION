@@ -25,7 +25,7 @@ Preprocessing:
 
 ModelEvaluation:
   min_r2_threshold: 0.0  # Minimum acceptable R² - below this, model is worse than baseline
-  per_class_r2_threshold: -0.5  # Minimum per-class R² - below this, model is rejected
+  per_class_max_rmse: 1.5  # Maximum per-class RMSE - above this, model is rejected
 
 ElasticNet:
   alpha: 0.2

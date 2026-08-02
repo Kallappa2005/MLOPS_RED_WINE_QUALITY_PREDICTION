@@ -164,7 +164,7 @@ class ConfigurationManager:
             preprocessor_path = str(Path(self.config.data_transformation.root_dir) / "preprocessor.joblib")
 
         eval_params = self.params.get("ModelEvaluation", {})
-        per_class_r2_threshold = float(eval_params.get("per_class_r2_threshold", -0.5))
+        per_class_max_rmse = float(eval_params.get("per_class_max_rmse", 1.5))
 
         model_evaluation_config = ModelEvaluationConfig(
             root_dir=Path(root_dir),
@@ -174,8 +174,8 @@ class ConfigurationManager:
             metric_file_name=Path(get_env_or_config(ENV_MODEL_EVALUATION_METRIC_FILE_NAME, config.metric_file_name)),
             target_column=schema.name,
             preprocessor_path=Path(preprocessor_path),
-            use_scaler=self.params.get("Preprocessing", {}).get("use_scaler", True),
-            per_class_r2_threshold=per_class_r2_threshold,
+            use_scaler=self.params.Preprocessing.use_scaler,
+            per_class_max_rmse=per_class_max_rmse,
         )
 
         return model_evaluation_config
