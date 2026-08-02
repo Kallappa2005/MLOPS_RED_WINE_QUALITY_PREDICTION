@@ -19,8 +19,8 @@ class DataTransformationTrainingPipeline:
         else:
             raise RuntimeError("Validation status file not found. Run Data Validation stage first.")
 
-        config = ConfigurationManager()
-        data_transformation_config = config.get_data_transformation_config()
+        config_manager = ConfigurationManager()
+        data_transformation_config = config_manager.get_data_transformation_config()
         data_transformation = DataTransformation(config=data_transformation_config)
         data_transformation.train_test_spliting()
 
