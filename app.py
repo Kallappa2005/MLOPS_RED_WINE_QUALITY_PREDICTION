@@ -45,12 +45,14 @@ from mlProject.utils.model_registry import load_registry, rollback_to_version
 from mlProject.components.data_transformation import NUMERIC_FEATURES
 from mlProject.components.xai_explainer import XAIExplainer
 import joblib
+import portalocker
 
 # Enterprise MLOps components
 from mlProject.components.security import create_token, decode_token, require_role, AuditLogger, USER_DB
 from werkzeug.security import check_password_hash
 from mlProject.components.retraining import RetrainingEngine
 from mlProject.components.observability import APILogger, ObservabilityCollector
+from mlProject.components.cross_model_network import CrossModelNetwork
 
 
 @functools.lru_cache(maxsize=1)
@@ -1166,7 +1168,7 @@ def auth_login():
         return jsonify({"error": "Username and password are required"}), 400
         
     user = USER_DB.get(username)
-    if not user or not check_password_hash(user.get("password_hash", ""), password):
+    if not user or not check_password_hash(user["password_hash"], password):
         AuditLogger().log_action(username, "login", "FAILED", request.remote_addr, "Invalid password or user")
         return jsonify({"error": "Invalid username or password"}), 401
         
@@ -1444,6 +1446,144 @@ def api_analytics():
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+# ===========================================================================
+# Cross Model Intelligence Network API endpoints (Phase 48)
+# ===========================================================================
+
+@app.route("/cross-model/models", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def cmn_register_model():
+    """Register a model in the Cross Model Intelligence Network."""
+    data = request.json or {}
+    name = data.get("name")
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    model_id = CrossModelNetwork().register_model(
+        name=name,
+        model_type=data.get("model_type", "unknown"),
+        version=data.get("version", "1.0"),
+        capabilities=data.get("capabilities", []),
+        metadata=data.get("metadata", {}),
+    )
+    if not model_id:
+        return jsonify({"error": "Failed to register model"}), 500
+    return jsonify({"model_id": model_id}), 201
+
+
+@app.route("/cross-model/models", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def cmn_list_models():
+    """List all models registered in the Cross Model Intelligence Network."""
+    return jsonify(CrossModelNetwork().list_models())
+
+
+@app.route("/cross-model/models/<model_id>", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def cmn_get_model(model_id):
+    """Retrieve a single registered model by id."""
+    model = CrossModelNetwork().get_model(model_id)
+    if not model:
+        return jsonify({"error": f"Model {model_id} not found"}), 404
+    return jsonify(model)
+
+
+@app.route("/cross-model/models/<model_id>/signature", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def cmn_get_signature(model_id):
+    """Discover (or refresh) and return a model's knowledge signature."""
+    result = CrossModelNetwork().discover_knowledge_signature(model_id)
+    if result.get("status") == "error":
+        return jsonify(result), 404
+    return jsonify(result)
+
+
+@app.route("/cross-model/transfer", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def cmn_facilitate_transfer():
+    """Facilitate a knowledge transfer between two registered models."""
+    data = request.json or {}
+    source_model_id = data.get("source_model_id")
+    target_model_id = data.get("target_model_id")
+    if not source_model_id or not target_model_id:
+        return jsonify({"error": "source_model_id and target_model_id are required"}), 400
+    result = CrossModelNetwork().facilitate_transfer(
+        source_model_id=source_model_id,
+        target_model_id=target_model_id,
+        transfer_type=data.get("transfer_type", "knowledge_distillation"),
+        details=data.get("details"),
+    )
+    if result.get("status") == "error":
+        return jsonify(result), 404
+    return jsonify(result), 201
+
+
+@app.route("/cross-model/transfers", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def cmn_list_transfers():
+    """List recorded knowledge transfers."""
+    limit = request.args.get("limit", default=100, type=int)
+    return jsonify(CrossModelNetwork().list_transfers(limit=limit))
+
+
+@app.route("/cross-model/ensembles", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def cmn_create_ensemble():
+    """Create a new model ensemble."""
+    data = request.json or {}
+    name = data.get("name")
+    member_model_ids = data.get("member_model_ids")
+    if not name or not member_model_ids:
+        return jsonify({"error": "name and member_model_ids are required"}), 400
+    result = CrossModelNetwork().create_ensemble(
+        name=name,
+        member_model_ids=member_model_ids,
+        weights=data.get("weights"),
+    )
+    if result.get("status") == "error":
+        return jsonify(result), 400
+    return jsonify(result), 201
+
+
+@app.route("/cross-model/ensembles", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def cmn_list_ensembles():
+    """List all model ensembles."""
+    return jsonify(CrossModelNetwork().list_ensembles())
+
+
+@app.route("/cross-model/ensembles/<ensemble_id>", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def cmn_get_ensemble(ensemble_id):
+    """Retrieve a single ensemble by id."""
+    ensemble = CrossModelNetwork().get_ensemble(ensemble_id)
+    if not ensemble:
+        return jsonify({"error": f"Ensemble {ensemble_id} not found"}), 404
+    return jsonify(ensemble)
+
+
+@app.route("/cross-model/ensembles/<ensemble_id>/optimize", methods=["POST"])
+@require_role(["Admin", "Engineer"])
+def cmn_optimize_ensemble(ensemble_id):
+    """Re-optimize an ensemble's weights based on current member model performance."""
+    result = CrossModelNetwork().optimize_ensemble_weights(ensemble_id)
+    if result.get("status") == "error":
+        return jsonify(result), 404
+    return jsonify(result)
+
+
+@app.route("/cross-model/synergies", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def cmn_analyze_synergies():
+    """Return pairwise synergy analysis across all registered models."""
+    return jsonify(CrossModelNetwork().analyze_synergies())
+
+
+@app.route("/cross-model/summary", methods=["GET"])
+@require_role(["Admin", "Engineer", "Viewer"])
+def cmn_network_summary():
+    """Return an aggregated Cross Model Intelligence Network summary for dashboard widgets."""
+    return jsonify(CrossModelNetwork().get_network_summary())
 def _shutdown_handler(signum, frame):
     """Clean up training subprocess on shutdown signals."""
     print(f"Received signal {signum}, shutting down...")
