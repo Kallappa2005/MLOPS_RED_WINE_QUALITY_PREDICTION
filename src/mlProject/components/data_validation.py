@@ -1,9 +1,84 @@
 import os
 import pandas as pd
-from dataclasses import dataclass
-from mlProject import logger
 from mlProject.entity.config_entity import DataValidationConfig
 
+
+ValidationResult = namedtuple("ValidationResult", [
+    "schema_valid", "drift_detected", "drift_scores", "errors"
+])
+
+
+class SchemaValidator:
+    def __init__(self, schema: dict):
+        self.schema = schema
+
+    def validate(self, data: pd.DataFrame) -> tuple[bool, list[str]]:
+        errors = []
+        schema_cols = dict(self.schema)
+        for col in data.columns:
+            if col not in schema_cols:
+                errors.append(f"Unexpected column '{col}' found in data")
+                continue
+            expected_dtype = schema_cols[col]
+            actual_dtype = str(data[col].dtype)
+            # Use type-family checks to handle NaN-induced upcasting (e.g. int64 -> float64)
+            dtype_ok = (actual_dtype == expected_dtype) or (
+                "int" in expected_dtype and pd.api.types.is_numeric_dtype(data[col])
+            ) or (
+                "float" in expected_dtype and pd.api.types.is_float_dtype(data[col])
+            )
+            if not dtype_ok:
+                errors.append(
+                    f"Column '{col}' type mismatch: expected {expected_dtype}, got {actual_dtype}"
+                )
+            null_count = data[col].isnull().sum()
+            if null_count > 0:
+                errors.append(f"Column '{col}' has {null_count} null value(s)")
+        for col in schema_cols:
+            if col not in data.columns:
+                errors.append(f"Missing expected column '{col}' in data")
+        return len(errors) == 0, errors
+
+
+class DriftDetector:
+    def __init__(self, threshold: float = 0.05, root_dir: Path = None):
+        self.threshold = threshold
+        self.root_dir = root_dir
+
+    def detect(self, reference: pd.DataFrame, production: pd.DataFrame) -> tuple[bool, dict[str, float]]:
+        try:
+            from evidently.report import Report
+            from evidently.metric_preset import DataDriftPreset
+            
+            ref_features = reference.drop(columns=["quality"], errors="ignore")
+            prod_features = production.drop(columns=["quality"], errors="ignore")
+            
+            report = Report(metrics=[
+                DataDriftPreset(stattest_threshold=self.threshold)
+            ])
+            
+            report.run(reference_data=ref_features, current_data=prod_features)
+            
+            if self.root_dir:
+                report_path = Path(self.root_dir) / "drift_report.html"
+                report.save_html(str(report_path))
+                logger.info(f"Evidently AI drift report saved to {report_path}")
+                
+            report_dict = report.as_dict()
+            dataset_drift = report_dict["metrics"][0]["result"]["dataset_drift"]
+            
+            scores = {}
+            drift_by_columns = report_dict["metrics"][0]["result"]["drift_by_columns"]
+            for col, metrics in drift_by_columns.items():
+                scores[col] = round(metrics.get("drift_score", 0), 6)
+                
+            return dataset_drift, scores
+        except ImportError:
+            logger.error("evidently library is not installed. Run: pip install evidently")
+            raise
+        except Exception as e:
+            logger.error(f"Evidently AI drift detection failed: {e}")
+            raise
 
 class DataValidationError(Exception):
     pass
@@ -20,41 +95,10 @@ class ValidationResult:
 class DataValidator:
     def __init__(self, config: DataValidationConfig):
         self.config = config
-
-    def validate_columns(self, data: pd.DataFrame) -> bool:
-        expected_cols = list(self.config.all_schema.keys())
-        missing = [col for col in expected_cols if col not in data.columns]
-        if missing:
-            raise DataValidationError(f"Missing critical columns: {missing}")
-        extra = [col for col in data.columns if col not in expected_cols]
-        if extra:
-            logger.warning(f"Unexpected columns found: {extra}")
-        return True
-
-    def _detect_drift(self, data: pd.DataFrame) -> dict:
-        drift_scores = {}
-        ref_path = self.config.reference_data_path
-        if not os.path.exists(ref_path):
-            logger.warning(f"Reference data not found at {ref_path}, skipping drift detection")
-            return drift_scores
-        ref_data = pd.read_csv(ref_path)
-        common_cols = [c for c in data.columns if c in ref_data.columns and c in self.config.all_schema]
-        for col in common_cols:
-            if data[col].dtype.kind in ('i', 'f') and ref_data[col].dtype.kind in ('i', 'f'):
-                ref_mean = ref_data[col].mean()
-                cur_mean = data[col].mean()
-                ref_std = ref_data[col].std()
-                if ref_std > 0:
-                    drift_score = abs(cur_mean - ref_mean) / ref_std
-                    drift_scores[col] = round(drift_score, 4)
-        return drift_scores
+        self.schema_validator = SchemaValidator(config.all_schema)
+        self.drift_detector = DriftDetector(config.drift_threshold, config.root_dir)
 
     def run(self) -> ValidationResult:
-        errors = []
-        drift_scores = {}
-        schema_valid = False
-        drift_detected = False
-
         try:
             data = pd.read_csv(self.config.data_file)
         except Exception as e:
