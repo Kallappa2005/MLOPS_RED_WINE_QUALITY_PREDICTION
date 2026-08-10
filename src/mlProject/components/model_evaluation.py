@@ -34,7 +34,7 @@ class ModelEvaluation:
         Calculate the R² score for a naive baseline model that always predicts the mean.
         R² < 0 indicates the model performs worse than predicting the mean.
         """
-        mean_pred = np.full_like(actual, np.mean(actual))
+        mean_pred = np.full(np.shape(actual), np.mean(actual), dtype=float)
         baseline_r2 = r2_score(actual, mean_pred)
         return baseline_r2
 
