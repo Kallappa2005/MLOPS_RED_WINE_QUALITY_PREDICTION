@@ -1,6 +1,40 @@
-from sklearn.model_selection import cross_val_score
-from sklearn.ensemble import RandomForestRegressor
+import json
+import os
+import tempfile
+from pathlib import Path
 import numpy as np
+import pandas as pd
+import joblib
+from mlProject import logger
+from mlProject.entity.config_entity import ModelTrainerConfig
+from mlProject.components.data_transformation import NUMERIC_FEATURES
+from mlProject.utils.mlflow_tracker import MlflowTracker
+from mlProject.utils.model_registry import get_version_id, compute_file_hash
+from sklearn.linear_model import ElasticNet
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.model_selection import cross_val_score
+from xgboost import XGBRegressor
+from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.pipeline import Pipeline
+
+
+def _extract_hyperparams(model, model_name: str) -> dict:
+    """Extract serializable hyperparameters from any sklearn-compatible estimator."""
+    tracked_attrs = [
+        "alpha", "l1_ratio",
+        "n_estimators", "max_depth",
+        "learning_rate", "subsample",
+        "min_samples_leaf", "max_features",
+        "colsample_bytree", "reg_alpha", "reg_lambda",
+        "random_state",
+    ]
+    params = {"model_type": model_name}
+    for attr in tracked_attrs:
+        val = getattr(model, attr, None)
+        if val is not None:
+            params[attr] = float(val) if isinstance(val, (int, float)) else val
+    return params
+
 
 class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig):
@@ -23,7 +57,6 @@ class ModelTrainer:
         test_x = test_data.drop([self.config.target_column], axis=1)
         test_y = test_data[[self.config.target_column]].values.ravel()
 
-        # Load preprocessor if available
         preprocessor = None
         preprocessor_path = self.config.preprocessor_path or Path('artifacts/data_transformation/preprocessor.joblib')
         if self.config.use_scaler and preprocessor_path.exists():
@@ -49,7 +82,6 @@ class ModelTrainer:
             train_x_preprocessed = train_x
             test_x_preprocessed = test_x
 
-        # Define candidate models
         models = {
             "ElasticNet": ElasticNet(alpha=self.config.alpha, l1_ratio=self.config.l1_ratio, random_state=42),
             "RandomForestRegressor": RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42),
@@ -71,14 +103,13 @@ class ModelTrainer:
                 r2 = r2_score(test_y, preds)
                 rmse = np.sqrt(mean_squared_error(test_y, preds))
                 mae = np.mean(np.abs(preds - test_y))
-                
+
                 logger.info(f"{name} Results - R2: {r2:.4f}, RMSE: {rmse:.4f}, MAE: {mae:.4f}")
                 benchmark_results[name] = {"r2": float(r2), "rmse": float(rmse), "mae": float(mae)}
-                
-                # Log model run to mlflow
+
                 self._init_mlflow(name, model)
                 self._log_metrics_mlflow({"r2": float(r2), "rmse": float(rmse), "mae": float(mae)})
-                
+
                 if r2 > best_r2:
                     best_r2 = r2
                     best_model_name = name
@@ -94,31 +125,15 @@ class ModelTrainer:
                 logger.error(f"Failed to train model {name}: {e}")
 
         logger.info(f"Best model selected: {best_model_name} with R2: {best_r2:.4f}")
-        
-        # Save benchmark results to artifacts
+
         benchmark_path = os.path.join(self.config.root_dir, "benchmark_results.json")
         with open(benchmark_path, "w") as f:
             json.dump(benchmark_results, f, indent=2)
 
         version_id = get_version_id()
-        
-        # Generate SHAP Explainer
-        try:
-            import shap
-            # Sample background data to avoid slow explainer initialization
-            background_data = train_x.sample(min(100, len(train_x)), random_state=42)
-            explainer = shap.Explainer(unified_pipeline.predict, background_data)
-            explainer_path = os.path.join(self.config.root_dir, f"explainer.joblib")
-            with tempfile.NamedTemporaryFile(dir=self.config.root_dir, suffix='.joblib', delete=False) as tmp:
-                tmp_explainer_path = tmp.name
-                joblib.dump(explainer, tmp_explainer_path)
-            os.replace(tmp_explainer_path, explainer_path)
-            logger.info(f"SHAP explainer generated and saved to {explainer_path}")
-        except Exception as e:
-            logger.warning(f"Failed to generate SHAP explainer: {e}")
         model_filename = f"model_{version_id}.joblib"
         model_path_str = os.path.join(self.config.root_dir, model_filename)
-        
+
         try:
             with tempfile.NamedTemporaryFile(dir=self.config.root_dir, suffix='.joblib', delete=False) as tmp:
                 tmp_path = tmp.name
@@ -142,7 +157,7 @@ class ModelTrainer:
             "version_id": version_id,
             "model_path": str(model_path),
             "model_type": best_model_name,
-            "params": {"alpha": self.config.alpha, "l1_ratio": self.config.l1_ratio} if best_model_name == "ElasticNet" else {},
+            "params": _extract_hyperparams(best_model, best_model_name),
             "data_hash": data_hash or "",
             "r2_score": best_r2
         }
@@ -150,11 +165,19 @@ class ModelTrainer:
         with open(model_info_path, "w") as f:
             json.dump(model_info, f, indent=2)
 
-        # Log final promoted model to MLflow
         self._init_mlflow(f"FinalPromoted_{best_model_name}", best_model)
         self._log_to_mlflow(best_pipeline, version_id, model_path, model_info["params"], train_x)
 
         logger.info(f"Promoted pipeline ({best_model_name}) {version_id} saved to {model_path}")
+
+    def train_with_cv(self, X, y, cv_folds=5):
+        """Run cross-validated training and return the fitted model."""
+        model = RandomForestRegressor(n_estimators=100, random_state=42)
+        scores = cross_val_score(model, X, y, cv=cv_folds, scoring='neg_mean_squared_error')
+        rmse_scores = np.sqrt(-scores)
+        logger.info(f"Cross-validation RMSE: {rmse_scores.mean():.4f} (+/- {rmse_scores.std() * 2:.4f})")
+        model.fit(X, y)
+        return model
 
     def _init_mlflow(self, model_name: str, model):
         try:
