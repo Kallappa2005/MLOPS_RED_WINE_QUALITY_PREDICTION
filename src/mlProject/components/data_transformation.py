@@ -259,24 +259,8 @@ class DataTransformation:
         if self.config.use_scaler:
             preprocessor = self._build_preprocessing_pipeline()
             train_features = train[NUMERIC_FEATURES]
-            test_features = test[NUMERIC_FEATURES]
-            train_target = train[[self.config.stratify_column]] if self.config.stratify_column in train.columns else None
-            test_target = test[[self.config.stratify_column]] if self.config.stratify_column in test.columns else None
 
             train_scaled = preprocessor.fit_transform(train_features)
-            test_scaled = preprocessor.transform(test_features)
-
-            try:
-                feat_names = preprocessor.named_steps["feature_engineer"].get_feature_names_out()
-            except Exception:
-                feat_names = [f"feat_{i}" for i in range(train_scaled.shape[1])]
-
-            train_scaled_df = pd.DataFrame(train_scaled, columns=feat_names)
-            test_scaled_df = pd.DataFrame(test_scaled, columns=feat_names)
-
-            if train_target is not None:
-                train_scaled_df[self.config.stratify_column] = train_target.values
-                test_scaled_df[self.config.stratify_column] = test_target.values
 
             preprocessor_path = os.path.join(self.config.root_dir, "preprocessor.joblib")
             joblib.dump(preprocessor, preprocessor_path)
@@ -295,23 +279,15 @@ class DataTransformation:
                     f"Preprocessor output dimension {train_scaled.shape[1]} "
                     f"does not match expected {feat_dim + num_engineered} (features + engineered)"
                 )
-        else:
-            train_scaled_df = None
-            test_scaled_df = None
 
         try:
             train.to_csv(os.path.join(self.config.root_dir, "train.csv"), index=False)
             test.to_csv(os.path.join(self.config.root_dir, "test.csv"), index=False)
-            if self.config.use_scaler and train_scaled_df is not None:
-                train_scaled_df.to_csv(os.path.join(self.config.root_dir, "train_scaled.csv"), index=False)
-                test_scaled_df.to_csv(os.path.join(self.config.root_dir, "test_scaled.csv"), index=False)
         except OSError as e:
             logger.error(f"Failed to write train/test CSV files: {e}")
             raise
 
         logger.info("Splited data into training and test sets")
         logger.info(f"Train shape: {train.shape}, Test shape: {test.shape}")
-        if self.config.use_scaler:
-            logger.info(f"Scaled train shape: {train_scaled_df.shape}, Scaled test shape: {test_scaled_df.shape}")
 
         logger.info(f"Train: {train.shape}, Test: {test.shape}")
