@@ -247,14 +247,13 @@ def log_admin_action(action, details=""):
 
 
 def require_admin_token(f):
-    """Decorator to require admin token (old API token) or a valid JWT token with Admin role."""
+    """Decorator to require ADMIN_TOKEN (static) or a valid JWT token with Admin role."""
     @functools.wraps(f)
     def decorated(*args, **kwargs):
-        # 1. Try static admin/train tokens (backward compatibility)
+        # 1. Try static ADMIN_TOKEN — intentionally does not fall back to TRAIN_SECRET.
         token = (request.headers.get('X-Admin-Token')
-                 or request.headers.get('X-Train-Token')
                  or request.args.get("token", ""))
-        expected = os.environ.get("ADMIN_TOKEN") or os.environ.get("TRAIN_SECRET", "")
+        expected = os.environ.get("ADMIN_TOKEN", "")
         if token and expected and secrets.compare_digest(token.encode(), expected.encode()):
             log_admin_action(f.__name__, "Authenticated via static token")
             AuditLogger().log_action("static_admin", request.path, "GRANTED", request.remote_addr)
