@@ -169,3 +169,46 @@ def test_predict_route_validation_error(client):
     assert response.status_code == 400
     assert "validation error" in response.data.decode().lower()
 
+
+# ---------------------------------------------------------------------------
+# 10. /api/predict enforces the same input-domain bounds as /predict
+# ---------------------------------------------------------------------------
+_VALID_API_PAYLOAD = {
+    "fixed_acidity": 7.4,
+    "volatile_acidity": 0.7,
+    "citric_acid": 0.0,
+    "residual_sugar": 1.9,
+    "chlorides": 0.076,
+    "free_sulfur_dioxide": 11.0,
+    "total_sulfur_dioxide": 34.0,
+    "density": 0.9978,
+    "pH": 3.51,
+    "sulphates": 0.56,
+    "alcohol": 9.4,
+}
+
+
+def test_api_predict_rejects_out_of_range_ph(client):
+    payload = dict(_VALID_API_PAYLOAD, pH=-50)
+    response = client.post("/api/predict", json=payload)
+    assert response.status_code == 422
+    assert "ph" in response.get_json()["error"].lower()
+
+
+def test_api_predict_rejects_negative_value(client):
+    payload = dict(_VALID_API_PAYLOAD, alcohol=-999)
+    response = client.post("/api/predict", json=payload)
+    assert response.status_code == 422
+
+
+def test_api_predict_rejects_non_numeric(client):
+    payload = dict(_VALID_API_PAYLOAD, density="not-a-number")
+    response = client.post("/api/predict", json=payload)
+    assert response.status_code == 422
+
+
+def test_api_predict_rejects_missing_fields(client):
+    payload = {k: v for k, v in _VALID_API_PAYLOAD.items() if k != "alcohol"}
+    response = client.post("/api/predict", json=payload)
+    assert response.status_code == 422
+
