@@ -17,7 +17,7 @@
 
     <header class="topbar">
         <a href="/" class="brand">Red Wine IQ</a>
-        <nav class="menu">
+        <nav class="menu" aria-label="Primary">
             <a href="/">Home</a>
             <a href="/#demo">Take Demo</a>
         </nav>
@@ -27,8 +27,8 @@
         {% if error_msg %}
             <p class="badge" style="background: #dc3545;">System Alert</p>
             <h1>Prediction Failed</h1>
-            <div class="result-card" style="border-left: 4px solid #dc3545;">
-                <p class="result-copy" style="font-size: 1.25rem; color: #333;">{{ error_msg }}</p>
+            <div class="result-card" style="border-left: 4px solid #dc3545;" role="alert">
+                <p class="result-copy" style="font-size: 1.25rem; color: #333;"><strong>Error:</strong> {{ error_msg }}</p>
             </div>
         {% else %}
             <p class="badge">Prediction Ready</p>
@@ -37,6 +37,13 @@
                 <p class="result-number">{{ prediction }}</p>
                 <p class="result-copy">This score is predicted from the chemical attributes you provided.</p>
             </div>
+            
+            {% if plot_url %}
+            <div class="shap-plot" style="margin-top: 2rem; text-align: center; background: white; padding: 1rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <h3 style="color: #333; margin-bottom: 1rem;">Prediction Explanation (SHAP)</h3>
+                <img src="data:image/png;base64,{{ plot_url }}" alt="SHAP Waterfall Plot" style="max-width: 100%; height: auto; border-radius: 4px;">
+            </div>
+            {% endif %}
         {% endif %}
 
         <div class="hero-actions">

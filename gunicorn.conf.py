@@ -88,7 +88,7 @@ def _ensure_model_trained(server):
     try:
         import subprocess
         result = subprocess.run(
-            ["python", "main.py"],
+            [sys.executable, "main.py"],
             capture_output=True,
             text=True,
             timeout=300,
@@ -97,5 +97,7 @@ def _ensure_model_trained(server):
             server.log.info("Auto-training completed successfully")
         else:
             server.log.error(f"Auto-training failed:\n{result.stderr}")
+    except FileNotFoundError:
+        server.log.error(f"Python executable not found at: {sys.executable}")
     except Exception as exc:
         server.log.error(f"Auto-training failed: {exc}")

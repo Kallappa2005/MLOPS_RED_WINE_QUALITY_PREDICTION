@@ -17,6 +17,10 @@ from mlProject import logger
 _REGISTRY_VERSION_KEY = "_version_stamp"
 
 
+class RegistryError(Exception):
+    """Raised when an existing registry file is present but cannot be read."""
+
+
 def _next_version_stamp() -> str:
     return datetime.now(timezone.utc).isoformat() + ":" + uuid.uuid4().hex[:8]
 
@@ -25,9 +29,16 @@ def _lock_registry(registry_path: Path):
     """Acquire an exclusive lock on the registry file."""
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = registry_path.with_suffix(registry_path.suffix + ".lock")
-    lock_file = open(lock_path, "w")
-    portalocker.lock(lock_file, portalocker.LOCK_EX)
-    return lock_file
+
+    lock_file = None
+    try:
+        lock_file = open(lock_path, "w")
+        portalocker.lock(lock_file, portalocker.LOCK_EX)
+        return lock_file
+    except Exception:
+        if lock_file is not None:
+            lock_file.close()
+        raise
 
 
 def _unlock_registry(lock_file):
@@ -46,14 +57,28 @@ def compute_file_hash(filepath: Path) -> str:
 
 
 def load_registry(registry_path: Path) -> dict:
-    """Load model registry from JSON file."""
-    if registry_path.exists():
+    """Load model registry from JSON file.
+
+    A missing file returns an empty registry. An existing file that cannot be
+    parsed is treated as corruption and raises RegistryError, so that callers
+    that load-mutate-save do not overwrite a recoverable file with an empty one.
+    The unreadable file is side-copied for recovery before raising.
+    """
+    if not registry_path.exists():
+        return {"production": None, "staging": None, "versions": []}
+    try:
+        with open(registry_path, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        backup_path = registry_path.with_suffix(
+            registry_path.suffix + f".corrupt-{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        )
         try:
-            with open(registry_path, "r") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Failed to load registry: {e}")
-    return {"production": None, "staging": None, "versions": []}
+            shutil.copy2(str(registry_path), str(backup_path))
+            logger.error(f"Failed to load registry: {e}. Backed up to {backup_path}")
+        except OSError:
+            logger.error(f"Failed to load registry: {e}. Backup also failed.")
+        raise RegistryError(f"Registry at {registry_path} is unreadable: {e}") from e
 
 
 def save_registry(registry_path: Path, registry: dict):
@@ -97,6 +122,10 @@ def register_model(
     stable_model_path: Optional[Path] = None,
 ) -> dict:
     """Register a model version and enforce quality gates."""
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"Cannot register model {version_id}: model file not found at {model_path}"
+        )
     lock = _lock_registry(registry_path)
     try:
         registry = load_registry(registry_path)
@@ -253,6 +282,29 @@ def update_registration(
         for v in registry.get("versions", []):
             if v.get("id") == version_id:
                 was_production = v.get("status") == "production" or registry.get("production") == version_id
+
+                # Enforce the supplied quality gate when promoting to production.
+                if status == "production" and quality_gate_max_rmse_degradation_pct is not None and metrics is not None:
+                    current_production = registry.get("production")
+                    previous_metrics = None
+                    if current_production and current_production != version_id:
+                        for pv in registry.get("versions", []):
+                            if pv.get("id") == current_production:
+                                previous_metrics = pv.get("metrics", {})
+                                break
+                    if previous_metrics and "rmse" in previous_metrics and "rmse" in metrics:
+                        prev_rmse = previous_metrics["rmse"]
+                        new_rmse = metrics["rmse"]
+                        if prev_rmse > 0:
+                            degradation_pct = ((new_rmse - prev_rmse) / prev_rmse) * 100
+                            if degradation_pct > quality_gate_max_rmse_degradation_pct:
+                                logger.warning(
+                                    f"Model {version_id} REJECTED on update: RMSE degradation "
+                                    f"{degradation_pct:.2f}% exceeds threshold "
+                                    f"{quality_gate_max_rmse_degradation_pct}%"
+                                )
+                                return False
+
                 if metrics is not None:
                     v["metrics"] = metrics
                 if status is not None:
@@ -358,10 +410,23 @@ def rollback_to_version(registry_path: Path, version_id: str) -> bool:
                         f"model file not found at {versioned_path}"
                     )
                     return False
-                stable_path = versioned_path.parent / "model.joblib"
+                # Restore to the canonical production stable path used everywhere
+                # else (register_model / promote_model -> artifacts/model_trainer/model.joblib),
+                # not the versioned model's own directory, so the live
+                # PredictionPipeline actually loads the rolled-back model.
+                stable_path = Path("artifacts/model_trainer/model.joblib")
                 shutil.copy2(str(versioned_path), str(stable_path))
                 checksum_path = Path(str(stable_path) + ".sha256")
                 save_checksum(stable_path, checksum_path)
+                model_info_path = stable_path.parent / "model_info.json"
+                model_info = {
+                    "version_id": version_id,
+                    "model_path": str(versioned_path),
+                    "params": v.get("params", {}),
+                    "data_hash": v.get("data_hash", ""),
+                }
+                with open(model_info_path, "w") as f:
+                    json.dump(model_info, f, indent=2)
                 registry["production"] = version_id
                 save_registry(registry_path, registry)
                 logger.info(

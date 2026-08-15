@@ -1,3 +1,4 @@
+from pathlib import Path
 from mlProject.config.configuration import ConfigurationManager
 from mlProject.components.data_transformation import DataTransformation
 from mlProject import logger
@@ -9,8 +10,17 @@ class DataTransformationTrainingPipeline:
         pass
 
     def main(self):
-        config = ConfigurationManager()
-        data_transformation_config = config.get_data_transformation_config()
+        status_file = Path("artifacts/data_validation/status.txt")
+        if status_file.exists():
+            with open(status_file, "r") as f:
+                content = f.read()
+            if "Validation status: False" in content:
+                raise RuntimeError("Data validation failed. Aborting transformation pipeline. Check artifacts/data_validation/status.txt for details.")
+        else:
+            raise RuntimeError("Validation status file not found. Run Data Validation stage first.")
+
+        config_manager = ConfigurationManager()
+        data_transformation_config = config_manager.get_data_transformation_config()
         data_transformation = DataTransformation(config=data_transformation_config)
         data_transformation.train_test_spliting()
 

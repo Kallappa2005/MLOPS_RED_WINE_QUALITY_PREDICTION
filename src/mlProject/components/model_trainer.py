@@ -1,20 +1,6 @@
-import json
-import os
-import tempfile
-from pathlib import Path
+from sklearn.model_selection import cross_val_score
+from sklearn.ensemble import RandomForestRegressor
 import numpy as np
-import pandas as pd
-import joblib
-from mlProject import logger
-from mlProject.entity.config_entity import ModelTrainerConfig
-from mlProject.components.data_transformation import NUMERIC_FEATURES
-from mlProject.utils.mlflow_tracker import MlflowTracker
-from mlProject.utils.model_registry import get_version_id, compute_file_hash
-from sklearn.linear_model import ElasticNet
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from xgboost import XGBRegressor
-from sklearn.metrics import r2_score, mean_squared_error
-from sklearn.pipeline import Pipeline
 
 class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig):
@@ -115,6 +101,21 @@ class ModelTrainer:
             json.dump(benchmark_results, f, indent=2)
 
         version_id = get_version_id()
+        
+        # Generate SHAP Explainer
+        try:
+            import shap
+            # Sample background data to avoid slow explainer initialization
+            background_data = train_x.sample(min(100, len(train_x)), random_state=42)
+            explainer = shap.Explainer(unified_pipeline.predict, background_data)
+            explainer_path = os.path.join(self.config.root_dir, f"explainer.joblib")
+            with tempfile.NamedTemporaryFile(dir=self.config.root_dir, suffix='.joblib', delete=False) as tmp:
+                tmp_explainer_path = tmp.name
+                joblib.dump(explainer, tmp_explainer_path)
+            os.replace(tmp_explainer_path, explainer_path)
+            logger.info(f"SHAP explainer generated and saved to {explainer_path}")
+        except Exception as e:
+            logger.warning(f"Failed to generate SHAP explainer: {e}")
         model_filename = f"model_{version_id}.joblib"
         model_path_str = os.path.join(self.config.root_dir, model_filename)
         
