@@ -1,6 +1,28 @@
-from sklearn.model_selection import cross_val_score
-from sklearn.ensemble import RandomForestRegressor
+import os
+import json
+import logging
+import tempfile
+from pathlib import Path
+
+import joblib
 import numpy as np
+import pandas as pd
+from sklearn.ensemble import (
+    ElasticNet,
+    GradientBoostingRegressor,
+    RandomForestRegressor,
+)
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import cross_val_score
+from sklearn.pipeline import Pipeline
+from xgboost import XGBRegressor
+
+from mlProject.entity.config_entity import ModelTrainerConfig
+from mlProject.utils.common import compute_file_hash, get_version_id
+
+logger = logging.getLogger(__name__)
+
+NUMERIC_FEATURES = None  # Will be set by the data transformation stage
 
 class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig):
