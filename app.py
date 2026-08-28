@@ -69,6 +69,10 @@ load_env_file()
 
 app = Flask(__name__)
 
+# Register Prometheus metrics blueprint
+from mlProject.metrics import metrics_bp
+app.register_blueprint(metrics_bp)
+
 # Request logging middleware for API Gateway Request Analytics
 @app.before_request
 def before_request():
